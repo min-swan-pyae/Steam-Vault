@@ -1,0 +1,64 @@
+# =========================
+# Root-level Git Ignore
+# =========================
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment Files
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Firebase
+firebase-debug.log
+.firebaserc
+.firebase/
+functions/node_modules/
+functions/.env
+
+# =========================
+# Frontend (React)
+# =========================
+
+# Build output
+frontend/build/
+
+# Dependencies
+frontend/node_modules/
+
+# Environment
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# Editor settings
+frontend/.vscode/
+
+# =========================
+# Backend (Node.js + Express)
+# =========================
+
+# Dependencies
+backend/node_modules/
+
+# Logs and temp files
+backend/*.log
+backend/tmp/
+
+# Environment
+backend/.env
+backend/.env.local
+
+# Editor settings
+backend/.vscode/
+
+# Misc
+*.swp

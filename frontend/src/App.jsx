@@ -1,0 +1,54 @@
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { Provider } from 'react-redux'
+import { store } from './app/store'
+import RootLayout from './layouts/RootLayout'
+import Home from './pages/Home'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Toaster } from 'react-hot-toast'
+import { AuthProvider } from './context/AuthContext'
+import Dota2Dashboard from './pages/Dota2Dashboard'
+import PlayerProfile from './pages/PlayerProfile'
+import PlayerHeroes from './pages/PlayerHeroes'
+import MatchDetails from './pages/MatchDetails'
+import ErrorPage from './pages/ErrorPage'
+import Cs2Dashboard from './pages/Cs2Dashboard'
+import MarketPlace from './pages/MarketPlace'
+import ForumPage from './pages/ForumPage'
+import PerformanceSummary from './components/stats/PerformanceSummary'
+import DetailedHeroStats from './pages/DetailedHeroStats'
+import EnhancedMetaAnalysis from './components/stats/EnhancedMetaAnalysis'
+
+// Create a client
+const queryClient = new QueryClient()
+
+function App() {
+  return (
+    <Provider store={store}>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Router>
+            <Routes>
+              <Route path="/" element={<RootLayout />}>
+                <Route index element={<Home />} />
+                <Route path="dota2">
+                  <Route index element={<Dota2Dashboard />} />
+                  <Route path="players/:steamId" element={<PlayerProfile />} />
+                  <Route path="players/:steamId/heroes" element={<PlayerHeroes />} />
+                  <Route path="players/:steamId/hero/:heroId([0-9]+)" element={<DetailedHeroStats />} />
+                  <Route path="match/:matchId" element={<MatchDetails />} />
+                </Route>
+                <Route path="cs2" element={<Cs2Dashboard/>} />
+                <Route path="marketplace" element={<MarketPlace/>} />
+                <Route path="forum" element={<ForumPage/>} />
+              </Route>
+              <Route path="/error" element={<ErrorPage />} />
+            </Routes>
+          </Router>
+          <Toaster position="top-right" />
+        </AuthProvider>
+      </QueryClientProvider>
+    </Provider>
+  )
+}
+
+export default App
