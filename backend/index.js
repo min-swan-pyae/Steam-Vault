@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import dotaRoutes from './routes/dotaRoutes.js';
+import cs2Routes from './routes/cs2Routes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { loadHeroMap } from './utils/dotaUtils.js';
 import session from 'express-session';
@@ -90,6 +91,7 @@ app.use(express.json());
   app.use(passport.session());
 
 app.use('/api/dota2', dotaRoutes);
+  app.use('/api/cs2', cs2Routes);
   app.use('/auth', authRoutes);
 
 app.get('/', (req, res) => {

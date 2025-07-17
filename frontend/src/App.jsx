@@ -37,7 +37,10 @@ function App() {
                   <Route path="players/:steamId/hero/:heroId([0-9]+)" element={<DetailedHeroStats />} />
                   <Route path="match/:matchId" element={<MatchDetails />} />
                 </Route>
-                <Route path="cs2" element={<Cs2Dashboard/>} />
+                <Route path="cs2">
+                  <Route index element={<Cs2Dashboard/>} />
+                  <Route path="players/:steamId" element={<Cs2Dashboard />} />
+                </Route>
                 <Route path="marketplace" element={<MarketPlace/>} />
                 <Route path="forum" element={<ForumPage/>} />
               </Route>

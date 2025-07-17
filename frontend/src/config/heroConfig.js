@@ -257,9 +257,18 @@ export const heroAttackType={
 }
 // Cache configuration
 export const imageCacheConfig = {
-  maxAge: 24 * 60 * 60 * 1000, // 24 hours
-  maxSize: 100 // Maximum number of images to cache
+  maxSize: 200, // Maximum number of images to cache
+  maxAge: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
+  preloadBatchSize: 10, // Number of images to preload at once
+  retryAttempts: 3,
+  retryDelay: 1000, // 1 second
 };
+
+// Commonly used hero IDs for preloading
+export const popularHeroIds = [
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, // Top 10 popular heroes
+  11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+];
 
 // CDN URLs
 export const cdnConfig = {
