@@ -47,8 +47,8 @@ A comprehensive analytics platform for Dota 2 and CS2 players with marketplace m
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/steamvault.git
-cd steamvault
+git clone https://github.com/min-swan-pyae/Steam-Vault.git
+cd Steam-Vault
 ```
 
 2. Install dependencies:
