@@ -1,16 +1,10 @@
 import asyncHandler from '../middleware/asyncHandler.js';
-import NodeCache from 'node-cache';
 import steamService from "../services/steamService.js"
 import { players } from '../data/notablePlayers.js';
 import { heroCache } from './playerController.js';
+import { cacheService, CACHE_TYPES } from '../services/cacheService.js';
 
-
-// Cache with different TTLs for different data types
-const proPlayersCache = new NodeCache({ stdTTL: 600 }); // 10 minutes
-const metaStatsCache = new NodeCache({ stdTTL: 3600 }); // 1 hour
-const heroStatsCache = new NodeCache({ stdTTL: 86400 }); // 24 hours
-
-
+// Cache configuration moved to centralized cache service
 
 // Add response interceptor for error handling
 steamService.steamApi.interceptors.response.use(
@@ -32,7 +26,8 @@ steamService.steamApi.interceptors.response.use(
 // Get pro players currently in game
 export const getProPlayersLive = asyncHandler(async (req, res) => {
   // Check cache first
-  const cached = proPlayersCache.get('pro_players_live');
+  const cacheKey = 'pro_players_live';
+  const cached = cacheService.get(CACHE_TYPES.META_DATA, cacheKey);
   if (cached) {
     console.log('DEBUG - Returning cached pro players data');
     return res.json(cached);
@@ -193,7 +188,7 @@ export const getProPlayersLive = asyncHandler(async (req, res) => {
       data: result,
       isPublicMatchData: proPlayersLive.length === 0
     };
-    proPlayersCache.set('pro_players_live', responseData);
+    cacheService.set(CACHE_TYPES.META_DATA, cacheKey, responseData);
     return res.json(responseData);
   } catch (error) {
     console.error('DEBUG - Error fetching pro players from OpenDota API:', error.message);
@@ -230,7 +225,7 @@ export const getProPlayersLive = asyncHandler(async (req, res) => {
       }
     ];
     
-    proPlayersCache.set('pro_players_live', sampleData);
+    cacheService.set(CACHE_TYPES.META_DATA, cacheKey, sampleData);
     return res.json(sampleData);
   }
 });
@@ -238,7 +233,8 @@ export const getProPlayersLive = asyncHandler(async (req, res) => {
 // Get current meta statistics
 export const getMetaStats = asyncHandler(async (req, res) => {
   // Check cache first
-  const cached = metaStatsCache.get('meta_stats');
+  const cacheKey = 'meta_stats';
+  const cached = cacheService.get(CACHE_TYPES.META_DATA, cacheKey);
   if (cached) {
     return res.json(cached);
   }
@@ -265,7 +261,7 @@ export const getMetaStats = asyncHandler(async (req, res) => {
       metaStats.sort((a, b) => b.pick_count - a.pick_count);
     }
     
-    metaStatsCache.set('meta_stats', metaStats);
+    cacheService.set(CACHE_TYPES.META_DATA, cacheKey, metaStats);
     res.json(metaStats);
   } catch (error) {
     console.error('Error fetching meta stats:', error.message);
@@ -280,7 +276,7 @@ export const getMetaStats = asyncHandler(async (req, res) => {
       { hero_id: 11, name: "Shadow Fiend", pick_rate: "7.84", win_rate: "48.76" }
     ];
     
-    metaStatsCache.set('meta_stats', sampleHeroes);
+    cacheService.set(CACHE_TYPES.META_DATA, cacheKey, sampleHeroes);
     res.json(sampleHeroes);
   }
 });
@@ -288,7 +284,8 @@ export const getMetaStats = asyncHandler(async (req, res) => {
 // Get hero statistics
 export const getHeroStats = asyncHandler(async (req, res) => {
   // Check cache first
-  const cached = heroStatsCache.get('hero_stats');
+  const cacheKey = 'hero_stats';
+  const cached = cacheService.get(CACHE_TYPES.HERO_DATA, cacheKey);
   if (cached) {
     return res.json(cached);
   }
@@ -320,7 +317,7 @@ export const getHeroStats = asyncHandler(async (req, res) => {
       };
     });
     
-    heroStatsCache.set('hero_stats', heroStats);
+    cacheService.set(CACHE_TYPES.HERO_DATA, cacheKey, heroStats);
     res.json(heroStats);
   } catch (error) {
     console.error('Error fetching hero stats:', error.message);
@@ -332,7 +329,7 @@ export const getHeroStats = asyncHandler(async (req, res) => {
       { id: 3, name: "Bane", pick_rate: "3.21", win_rate: "51.89", ban_rate: "1.12", roles: ["Support", "Disabler"] }
     ];
     
-    heroStatsCache.set('hero_stats', sampleHeroStats);
+    cacheService.set(CACHE_TYPES.HERO_DATA, cacheKey, sampleHeroStats);
     res.json(sampleHeroStats);
   }
 });

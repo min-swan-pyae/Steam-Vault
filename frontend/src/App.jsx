@@ -17,6 +17,7 @@ import ForumPage from './pages/ForumPage'
 import PerformanceSummary from './components/stats/PerformanceSummary'
 import DetailedHeroStats from './pages/DetailedHeroStats'
 import EnhancedMetaAnalysis from './components/stats/EnhancedMetaAnalysis'
+import './services/cacheManager.js'
 
 // Create a client
 const queryClient = new QueryClient()
@@ -34,7 +35,7 @@ function App() {
                   <Route index element={<Dota2Dashboard />} />
                   <Route path="players/:steamId" element={<PlayerProfile />} />
                   <Route path="players/:steamId/heroes" element={<PlayerHeroes />} />
-                  <Route path="players/:steamId/hero/:heroId([0-9]+)" element={<DetailedHeroStats />} />
+                  <Route path="players/:steamId/hero/:heroId" element={<DetailedHeroStats />} />
                   <Route path="match/:matchId" element={<MatchDetails />} />
                 </Route>
                 <Route path="cs2">

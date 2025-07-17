@@ -41,5 +41,24 @@ export const cs2Service = {
       console.error('Error fetching CS2 player maps:', error);
       throw error;
     }
+  },
+
+  uploadDemo: async (steamId, demoFile) => {
+    try {
+      const formData = new FormData();
+      formData.append('demo', demoFile);
+      formData.append('steamId', steamId);
+      
+      const response = await api.post('/api/cs2/upload-demo', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Error uploading demo file:', error);
+      throw error;
+    }
   }
 };

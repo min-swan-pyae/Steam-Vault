@@ -53,6 +53,9 @@ backend/node_modules/
 backend/*.log
 backend/tmp/
 
+# Uploads directory
+backend/uploads/
+
 # Environment
 backend/.env
 backend/.env.local

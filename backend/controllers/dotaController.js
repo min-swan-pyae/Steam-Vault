@@ -3,8 +3,6 @@ import axios from 'axios';
 import path from 'path';
 // Hero mapping is now part of dotaUtils
 import {
-  matchHistoryCache,
-  matchDetailsCache,
   getSteamApiKey,
   getHeroName,
   steamApi,
@@ -24,6 +22,7 @@ import {
   loadItemMap
 } from '../utils/dotaUtils.js';
 import steamService from '../services/steamService.js';
+import { cacheService, CACHE_TYPES } from '../services/cacheService.js';
 
 const __dirname = path.resolve();
 
@@ -34,7 +33,8 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   accountId = convertSteamIdToAccountId(accountId);
 
   // Check cache first
-  const cachedHistory = matchHistoryCache.get(`history_${accountId}`);
+  const cacheKey = `history_${accountId}`;
+  const cachedHistory = cacheService.get(CACHE_TYPES.MATCH_HISTORY, cacheKey);
   if (cachedHistory) {
     return res.json(cachedHistory);
   }
@@ -65,7 +65,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     }));
 
     // Cache the match history
-    matchHistoryCache.set(`history_${accountId}`, matches);
+    cacheService.set(CACHE_TYPES.MATCH_HISTORY, cacheKey, matches);
     
     res.json(matches);
   } catch (error) {
@@ -78,7 +78,8 @@ export const getMatchDetail = asyncHandler(async (req, res) => {
   const { match_id } = req.params;
 
   // Check cache first
-  const cachedDetail = matchDetailsCache.get(`match_${match_id}`);
+  const cacheKey = `match_${match_id}`;
+  const cachedDetail = cacheService.get(CACHE_TYPES.MATCH_DATA, cacheKey);
   if (cachedDetail) {
     return res.json(cachedDetail);
   }
@@ -134,7 +135,7 @@ export const getMatchDetail = asyncHandler(async (req, res) => {
       };
 
       // Cache the enriched match
-      matchDetailsCache.set(`match_${match_id}`, enrichedMatch);
+      cacheService.set(CACHE_TYPES.MATCH_DATA, cacheKey, enrichedMatch);
       return res.json(enrichedMatch);
     } catch (matchError) {
       console.error('Error fetching match details from OpenDota API:', matchError.message);
@@ -146,7 +147,7 @@ export const getMatchDetail = asyncHandler(async (req, res) => {
     // Generate mock data on error
     try {
       const mockMatch = await generateMockMatchData(match_id);
-      matchDetailsCache.set(`match_${match_id}`, mockMatch);
+      cacheService.set(CACHE_TYPES.MATCH_DATA, cacheKey, mockMatch);
       return res.json(mockMatch);
     } catch (mockError) {
       console.error('Error creating mock data:', mockError.message);

@@ -2,12 +2,15 @@ import asyncHandler from '../middleware/asyncHandler.js';
 import path from 'path';
 import fs from 'fs/promises';
 import steamService from '../services/steamService.js';
-import NodeCache from 'node-cache';
 import axios from 'axios';
+import { cacheService, CACHE_TYPES } from '../services/cacheService.js';
 
 const __dirname = path.resolve();
-export const heroCache = new NodeCache({ stdTTL: 86400 }); // 1 day cache
-const playerDataCache = new NodeCache({ stdTTL: 3600 }); // 1 hour cache for player-specific data
+// Legacy export for compatibility with other modules
+export const heroCache = { 
+  get: (key) => cacheService.get(CACHE_TYPES.HERO_DATA, key),
+  set: (key, value) => cacheService.set(CACHE_TYPES.HERO_DATA, key, value)
+};
 
 /**
  * Lookup player by either Steam ID or Dota 2 ID
@@ -349,7 +352,7 @@ export const getPlayerHeroStats = asyncHandler(async (req, res) => {
   const cacheKey = `hero_stats_${steamId}`;
   
   // Check cache first
-  const cached = playerDataCache.get(cacheKey);
+  const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
   if (cached) {
     return res.json(cached);
   }
@@ -428,7 +431,7 @@ export const getPlayerHeroStats = asyncHandler(async (req, res) => {
     heroStats.sort((a, b) => b.games - a.games);
     
     // Cache the result
-    playerDataCache.set(cacheKey, heroStats);
+    cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, heroStats);
     
     res.json(heroStats);
   } catch (error) {
@@ -448,7 +451,7 @@ export const getPlayerPlaytimeTrends = asyncHandler(async (req, res) => {
   const cacheKey = `playtime_${steamId}`;
   
   // Check cache first
-  const cached = playerDataCache.get(cacheKey);
+  const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
   if (cached) {
     return res.json(cached);
   }
@@ -505,7 +508,7 @@ export const getPlayerPlaytimeTrends = asyncHandler(async (req, res) => {
     ];
     
     // Cache the result
-    playerDataCache.set(cacheKey, trends);
+    cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, trends);
     
     res.json(trends);
   } catch (error) {
@@ -844,7 +847,7 @@ export const getPlayerBehaviorMetrics = asyncHandler(async (req, res) => {
   const cacheKey = `behavior_${steamId}`;
   
   // Check cache first
-  const cached = playerDataCache.get(cacheKey);
+  const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
   if (cached) {
     return res.json(cached);
   }
@@ -920,7 +923,7 @@ export const getPlayerBehaviorMetrics = asyncHandler(async (req, res) => {
     };
     
     // Cache the result
-    playerDataCache.set(cacheKey, behaviorMetrics);
+    cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, behaviorMetrics);
     
     res.json(behaviorMetrics);
   } catch (error) {
@@ -944,7 +947,7 @@ export const  getPlayerPerformanceSummary = asyncHandler(async (req, res) => {
   const cacheKey = `performance_summary_${steamId}`;
   
   // Check cache first
-  const cached = playerDataCache.get(cacheKey);
+  const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
   if (cached) {
     return res.json(cached);
   }
@@ -1070,7 +1073,7 @@ export const  getPlayerPerformanceSummary = asyncHandler(async (req, res) => {
     };
     
     // Cache the result
-    playerDataCache.set(cacheKey, summary);
+    cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, summary);
     
     res.json(summary);
   } catch (error) {
@@ -1129,7 +1132,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
   const cacheKey = `detailed_hero_${steamId}_${heroId}`;
   
   // Check cache first
-  const cached = playerDataCache.get(cacheKey);
+  const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
   if (cached) {
     return res.json(cached);
   }
@@ -1180,7 +1183,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
         matchups: { best_against: [], worst_against: [] },
         recent_matches: []
       };
-      playerDataCache.set(cacheKey, defaultStats);
+      cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, defaultStats);
       return res.json(defaultStats);
     }
 
@@ -1218,7 +1221,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
         recent_matches: []
       };
       
-      playerDataCache.set(cacheKey, defaultStats);
+      cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, defaultStats);
       return res.json(defaultStats);
     }
 
@@ -1235,7 +1238,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
             hero_name: heroInfo.localized_name,
             total_matches: allHeroMatchSummaries.length, // Still report total matches played
         };
-        playerDataCache.set(cacheKey, defaultStatsWithTotal);
+        cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, defaultStatsWithTotal);
         return res.json(defaultStatsWithTotal);
     }
 
@@ -1351,7 +1354,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
              })),
               
         };
-        playerDataCache.set(cacheKey, fallbackStats);
+        cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, fallbackStats);
         return res.json(fallbackStats);
     }
 
@@ -1444,7 +1447,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
     };
     
     // Cache the result
-    playerDataCache.set(cacheKey, detailedStats);
+    cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, detailedStats);
     
     res.json(detailedStats);
   } catch (error) {

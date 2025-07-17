@@ -8,6 +8,25 @@
 			"group": "build",
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Start Backend Dev Server",
+			"type": "shell",
+			"command": "cd backend && npm start",
+			"group": "build",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Start Both Servers",
+			"dependsOrder": "parallel",
+			"dependsOn": [
+				"Start Frontend Dev Server",
+				"Start Backend Dev Server"
+			],
+			"group": "build",
+			"problemMatcher": []
 		}
+		
 	]
 }

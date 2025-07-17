@@ -140,7 +140,7 @@ export default function PlayerProfile() {
       <div className="min-h-screen bg-gray-900 text-white p-8">
         <div className="max-w-7xl mx-auto text-center">
           <div className="bg-red-900/50 border border-red-500 rounded-lg p-8 mb-8">
-            <h2 className="text-2xl font-bold mb-4">Invalid steam id!</h2>
+            <h2 className="text-2xl font-bold mb-4">This player profile is private!</h2>
             
           </div>
           <PlayerSearch 

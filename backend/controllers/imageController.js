@@ -1,12 +1,6 @@
 import axios from 'axios';
-import NodeCache from 'node-cache';
 import asyncHandler from '../middleware/asyncHandler.js';
-
-
-// Cache for hero images to avoid repeated requests
-const heroImageCache = new NodeCache({ stdTTL: 86400 * 7 }); // 7 days cache
-// Cache for hero data
-const heroDataCache = new NodeCache({ stdTTL: 86400 }); // 1 day cache
+import { cacheService, CACHE_TYPES } from '../services/cacheService.js';
 
 /**
  * Proxy hero images from Steam CDN to avoid CORS issues
@@ -19,7 +13,7 @@ export const getHeroImage = asyncHandler(async (req, res) => {
   try {
     // Check cache first
     const cacheKey = `hero_img_${heroId}`;
-    const cachedImage = heroImageCache.get(cacheKey);
+    const cachedImage = cacheService.get(CACHE_TYPES.IMAGE_DATA, cacheKey);
     
     if (cachedImage) {
       console.log(`[HERO IMAGE] Cache hit for hero ID: ${heroId}`);
@@ -36,13 +30,13 @@ export const getHeroImage = asyncHandler(async (req, res) => {
       const heroesResponse = await axios.get('https://api.opendota.com/api/heroes', { timeout: 5000 });
       if (heroesResponse.status === 200 && Array.isArray(heroesResponse.data)) {
         heroes = heroesResponse.data;
-        heroDataCache.set('all_heroes', heroes);
+        cacheService.set(CACHE_TYPES.HERO_DATA, 'all_heroes', heroes);
       }
     } catch (err) {
       console.error('Failed to fetch heroes from OpenDota API:', err.message);
       
       // Fall back to cache
-      heroes = heroDataCache.get('all_heroes') || [];
+      heroes = cacheService.get(CACHE_TYPES.HERO_DATA, 'all_heroes') || [];
     }
     
     // Find the hero by ID
@@ -136,7 +130,7 @@ export const getHeroImage = asyncHandler(async (req, res) => {
     // Cache the successful image
     try {
       const base64Image = Buffer.from(imageResponse.data).toString('base64');
-      heroImageCache.set(cacheKey, base64Image);
+      cacheService.set(CACHE_TYPES.IMAGE_DATA, cacheKey, base64Image);
       console.log(`[HERO IMAGE] Successfully cached image for hero ${heroId}`);
     } catch (cacheErr) {
       console.error("[HERO IMAGE] Error caching image:", cacheErr);

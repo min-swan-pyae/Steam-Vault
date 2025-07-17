@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import dotaRoutes from './routes/dotaRoutes.js';
 import cs2Routes from './routes/cs2Routes.js';
+import cacheRoutes from './routes/cacheRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { loadHeroMap } from './utils/dotaUtils.js';
 import session from 'express-session';
@@ -37,12 +38,12 @@ if (result.error) {
 }
 
 // Display available environment variables for debugging
-console.log('Environment variables loaded:');
-console.log('PORT:', process.env.PORT);
-console.log('STEAM_API_KEY exists:', !!process.env.STEAM_API_KEY);
-console.log('STEAM_API_KEY length:', process.env.STEAM_API_KEY?.length);
-console.log('SESSION_SECRET exists:', !!process.env.SESSION_SECRET);
-console.log('BASE_URL:', process.env.BASE_URL);
+// console.log('Environment variables loaded:');
+// console.log('PORT:', process.env.PORT);
+// console.log('STEAM_API_KEY exists:', !!process.env.STEAM_API_KEY);
+// console.log('STEAM_API_KEY length:', process.env.STEAM_API_KEY?.length);
+// console.log('SESSION_SECRET exists:', !!process.env.SESSION_SECRET);
+// console.log('BASE_URL:', process.env.BASE_URL);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -92,6 +93,7 @@ app.use(express.json());
 
 app.use('/api/dota2', dotaRoutes);
   app.use('/api/cs2', cs2Routes);
+  app.use('/api/cache', cacheRoutes);
   app.use('/auth', authRoutes);
 
 app.get('/', (req, res) => {

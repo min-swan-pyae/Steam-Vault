@@ -1,14 +1,8 @@
 import axios from 'axios';
-import NodeCache from 'node-cache';
 import dotenv from 'dotenv';
+import { cacheService, CACHE_TYPES } from './cacheService.js';
 
 dotenv.config();
-
-// Cache for different types of data
-const playerSummaryCache = new NodeCache({ stdTTL: 3600 }); // 1 hour
-const playerStatsCache = new NodeCache({ stdTTL: 1800 }); // 30 minutes
-const matchDetailsCache = new NodeCache({ stdTTL: 7200 }); // 2 hours
-const heroDataCache = new NodeCache({ stdTTL: 86400 * 7 }); // 7 days
 
 // Steam API client
 const steamApi = axios.create({
@@ -96,7 +90,7 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
     
     // Check cache first
     const cacheKey = `player_complete_${accountId}`;
-    const cached = playerSummaryCache.get(cacheKey);
+    const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
     if (cached) {
       return cached;
     }
@@ -280,7 +274,7 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
       : '0%';
     
     // Cache the result
-    playerSummaryCache.set(cacheKey, combinedProfile);
+    cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, combinedProfile);
     
     return combinedProfile;
   } catch (error) {
@@ -296,7 +290,7 @@ const getHeroes = async () => {
   try {
     // Check cache first
     const cacheKey = 'all_heroes';
-    const cached = heroDataCache.get(cacheKey);
+    const cached = cacheService.get(CACHE_TYPES.HERO_DATA, cacheKey);
     if (cached) {
       return cached;
     }
@@ -312,7 +306,7 @@ const getHeroes = async () => {
     }, {});
     
     // Cache the result
-    heroDataCache.set(cacheKey, heroMap);
+    cacheService.set(CACHE_TYPES.HERO_DATA, cacheKey, heroMap);
     
     return heroMap;
   } catch (error) {

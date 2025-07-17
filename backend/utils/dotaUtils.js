@@ -1,8 +1,8 @@
-import NodeCache from 'node-cache';
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs/promises';
 import steamService from '../services/steamService.js';
+import { cacheService, CACHE_TYPES } from '../services/cacheService.js';
 const __dirname = path.resolve();
 
 // Hero mapping functionality
@@ -75,9 +75,8 @@ export const getItemImage = (id) => {
 
 
 
-// Caches with different TTLs
-export const matchHistoryCache = new NodeCache({ stdTTL: 900 }); // 15 minutes
-export const matchDetailsCache = new NodeCache({ stdTTL: 3600 }); // 1 hour
+// Cache configuration moved to centralized cache service
+export const delayMs = 500; // Small delay to prevent being blocked
 
 // Create axios instance for Steam API with improved configuration
 export const steamApi = axios.create({
@@ -243,7 +242,8 @@ export const getRegionName = (clusterId) => {
 // Fetch match details with caching and retry mechanism
 export const fetchMatchDetails = async (match_id) => {
   // Check cache first
-  const cachedDetail = matchDetailsCache.get(`match_${match_id}`);
+  const cacheKey = `match_${match_id}`;
+  const cachedDetail = cacheService.get(CACHE_TYPES.MATCH_DATA, cacheKey);
   if (cachedDetail) {
     return cachedDetail;
   }
@@ -282,7 +282,7 @@ export const fetchMatchDetails = async (match_id) => {
         }
         
         // Cache the match details
-        matchDetailsCache.set(`match_${match_id}`, matchDetail);
+        cacheService.set(CACHE_TYPES.MATCH_DATA, cacheKey, matchDetail);
         return matchDetail;
       } else {
         throw new Error('Match details not found in response');
