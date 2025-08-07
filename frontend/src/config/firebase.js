@@ -1,6 +1,5 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
-import { getAuth, connectAuthEmulator } from 'firebase/auth';
 
 // Firebase configuration
 const firebaseConfig = {
@@ -17,17 +16,15 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firebase services
 export const db = getFirestore(app);
-export const auth = getAuth(app);
 
-// Connect to emulators in development
-if (import.meta.env.DEV) {
-  try {
-    connectFirestoreEmulator(db, 'localhost', 8080);
-    connectAuthEmulator(auth, 'http://localhost:9099');
-    console.log('Connected to Firebase emulators');
-  } catch (error) {
-    console.log('Firebase emulators not available, using production');
-  }
-}
+// Connect to emulators in development (commented out for production)
+// if (import.meta.env.DEV) {
+//   try {
+//     connectFirestoreEmulator(db, 'localhost', 8080);
+//     console.log('Connected to Firebase emulators');
+//   } catch (error) {
+//     console.log('Firebase emulators not available, using production');
+//   }
+// }
 
 export default app;

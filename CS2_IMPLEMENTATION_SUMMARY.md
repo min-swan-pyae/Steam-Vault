@@ -112,6 +112,10 @@ frontend/src/
 FIREBASE_PROJECT_ID=your-project-id
 FIREBASE_CLIENT_EMAIL=your-service-account-email
 FIREBASE_PRIVATE_KEY=your-private-key
+PORT=3000
+STEAM_API_KEY=your_steam_api_key
+SESSION_SECRET=your_session_secret_key
+BASE_URL=http://localhost:3000
 ```
 - These variables are accessed in backend code as `process.env.FIREBASE_PROJECT_ID`, etc.
 

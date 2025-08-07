@@ -6,6 +6,12 @@ import path from 'path';
 import dotaRoutes from './routes/dotaRoutes.js';
 import cs2Routes from './routes/cs2Routes.js';
 import cacheRoutes from './routes/cacheRoutes.js';
+
+console.log('Routes loaded:', {
+  dotaRoutes: typeof dotaRoutes,
+  cs2Routes: typeof cs2Routes,
+  cacheRoutes: typeof cacheRoutes
+});
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { loadHeroMap } from './utils/dotaUtils.js';
 import session from 'express-session';
@@ -72,7 +78,8 @@ const startServer = async () => {
       }
     }
   }));
-app.use(express.json());
+app.use(express.json({ limit: '300mb' }));
+app.use(express.urlencoded({ extended: true, limit: '300mb' }));
 
   app.use(session({
     secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -87,12 +94,15 @@ app.use(express.json());
     name: 'steamvault.sid'
   }));
 
-  // Initialize Passport
+  // Initialize Passport but don't apply middleware globally
   app.use(passport.initialize());
   app.use(passport.session());
 
 app.use('/api/dota2', dotaRoutes);
-  app.use('/api/cs2', cs2Routes);
+  app.use('/api/cs2', (req, res, next) => {
+    console.log('CS2 route middleware hit:', req.method, req.originalUrl);
+    next();
+  }, cs2Routes);
   app.use('/api/cache', cacheRoutes);
   app.use('/auth', authRoutes);
 

@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { heroAttackType } from '../config/heroConfig';
 import { fetchDetailedHeroStats } from '../features/stats/statsSlice';
+import { dotaService } from '../services/dotaService';
 import { FaChartBar,FaMapSigns, FaChartLine, FaUsers, FaGamepad, FaArrowUp, FaArrowDown, FaStar, FaShieldAlt, FaFistRaised, FaBrain, FaRunning, FaCoins, FaCrosshairs, FaSkullCrossbones, FaPlusSquare, FaPercentage } from 'react-icons/fa'; 
 import { motion, AnimatePresence } from 'framer-motion'; // Added AnimatePresence
 
@@ -171,7 +173,7 @@ export default function DetailedHeroStats() {
         {/* Tab Navigation */} 
         <div className="bg-gray-800/60 backdrop-blur-md rounded-xl p-2 shadow-xl sticky top-4 z-10 border border-gray-700/50">
           <div className="flex flex-wrap justify-center sm:justify-start gap-2">
-            {['overview', 'items', 'matchups', 'recent'].map((tab) => (
+            {['overview', 'items', 'recent'].map((tab) => (
               <motion.button
                 key={tab}
                 onClick={() => setSelectedTab(tab)}
@@ -234,79 +236,87 @@ export default function DetailedHeroStats() {
             
             {selectedTab === 'items' && (
               <div>
-                <h2 className="text-2xl font-semibold text-white mb-6 border-b-2 border-blue-500/50 pb-2">Item Analysis</h2>
+                <h2 className="text-2xl font-semibold text-white mb-6 border-b-2 border-blue-500/50 pb-2">Item Analysis (Last {heroStats.analyzed_matches_count || 0} Matches)</h2>
                 {heroStats.item_usage && Object.keys(heroStats.item_usage).length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {Object.entries(heroStats.item_usage).sort(([,a],[,b]) => b.count - a.count).slice(0, 12).map(([itemName, itemData]) => (
-                      <motion.div 
-                        key={itemName} 
-                        className="bg-gray-700/50 p-4 rounded-xl shadow-lg border border-gray-600/50 flex items-center space-x-4 hover:bg-gray-700 transition-colors duration-200"
-                        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.random() * 0.5 }}
-                      >
-                        {/* Placeholder for item image */}
-                        <div className="w-12 h-12 bg-gray-600 rounded-md flex items-center justify-center text-gray-400 text-xs">
-                          IMG
-                        </div>
-                        <div>
-                          <h4 className="text-lg font-semibold text-white capitalize">{itemName.replace(/item_/g, '').replace(/_/g, ' ')}</h4>
-                          <p className="text-sm text-gray-400">Picked: {itemData.count} times</p>
-                          <p className={`text-sm ${itemData.win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>Win Rate: {formatPercentage(itemData.win_rate)}</p>
-                        </div>
-                      </motion.div>
-                    ))}
+                    {Object.entries(heroStats.item_usage)
+                      .sort(([,a],[,b]) => b.count - a.count)
+                      .slice(0, 12)
+                      .map(([itemName, itemData]) => (
+                        <motion.div 
+                          key={itemName} 
+                          className="bg-gray-700/50 p-4 rounded-xl shadow-lg border border-gray-600/50 flex items-center space-x-4 hover:bg-gray-700 transition-colors duration-200"
+                          initial={{ opacity: 0, y: 10 }} 
+                          animate={{ opacity: 1, y: 0 }} 
+                          transition={{ delay: Math.random() * 0.5 }}
+                        >
+                          {/* Item image from backend */}
+                          <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-gray-800 flex items-center justify-center">
+                            {itemData.image ? (
+                              <img 
+                                src={itemData.image}
+                                alt={itemName}
+                                className="w-full h-full object-contain"
+                                onError={(e) => {
+                                  // If backend image fails, try the service method as fallback
+                                  const fallbackUrl = dotaService.getItemImageFallbackUrl(itemName);
+                                  if (e.target.src !== fallbackUrl && fallbackUrl) {
+                                    e.target.src = fallbackUrl;
+                                  } else {
+                                    // Show placeholder
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <img 
+                                src={dotaService.getItemImageUrl(itemName)}
+                                alt={itemName}
+                                className="w-full h-full object-contain"
+                                onError={(e) => {
+                                  const fallbackUrl = dotaService.getItemImageFallbackUrl(itemName);
+                                  if (e.target.src !== fallbackUrl && fallbackUrl) {
+                                    e.target.src = fallbackUrl;
+                                  } else {
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'flex';
+                                  }
+                                }}
+                              />
+                            )}
+                            {/* Placeholder for when image fails to load */}
+                            <div className="w-full h-full bg-gray-600 items-center justify-center text-gray-400 text-xs" style={{ display: 'none' }}>
+                              ?
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="text-lg font-semibold text-white capitalize">
+                              {itemName.replace(/^item_/, '').replace(/_/g, ' ')}
+                            </h4>
+                            <p className="text-sm text-gray-400">Picked: {itemData.count} times</p>
+                            <p className={`text-sm ${itemData.win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                              Win Rate: {formatPercentage(itemData.win_rate)}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              Frequency: {itemData.frequency}%
+                            </p>
+                          </div>
+                        </motion.div>
+                      ))}
                   </div>
                 ) : <p className="text-gray-400">No item usage data available for the analyzed matches.</p>}
               </div>
             )}
-
-            {selectedTab === 'matchups' && (
-              <div>
-                <h2 className="text-2xl font-semibold text-white mb-6 border-b-2 border-blue-500/50 pb-2">Matchup Analysis</h2>
-                {heroStats.matchups && (heroStats.matchups.with.length > 0 || heroStats.matchups.against.length > 0) ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div>
-                      <h3 className="text-xl font-semibold text-green-400 mb-4 flex items-center"><FaUsers className="mr-2" /> Strong With</h3>
-                      {heroStats.matchups.with.length > 0 ? heroStats.matchups.with.slice(0,5).map(ally => {
-                        const gamesPlayed = typeof ally.games_played === 'object' && ally.games_played !== null ? ally.games_played.games : ally.games_played;
-                        const wins = ally.wins;
-                        const winRate = (gamesPlayed > 0 && typeof wins === 'number') ? (wins / gamesPlayed) * 100 : 0;
-                        return (
-                          <div key={ally.hero_id} className="bg-gray-700/50 p-3 rounded-lg mb-3 shadow-md border border-gray-600/50">
-                            <p className="font-medium text-white">{ally.hero_name || `Hero ID: ${ally.hero_id}`}</p>
-                            <p className="text-sm text-gray-300">Games: {gamesPlayed !== undefined ? gamesPlayed : 'N/A'}, Wins: {wins !== undefined ? wins : 'N/A'}</p>
-                            <p className={`text-sm font-semibold ${winRate >= 50 ? 'text-green-400' : 'text-red-400'}`}>Win Rate: {formatPercentage(winRate)}</p>
-                          </div>
-                        );
-                      }) : <p className="text-gray-400">No significant ally data.</p>}
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-semibold text-red-400 mb-4 flex items-center"><FaShieldAlt className="mr-2" /> Strong Against</h3>
-                      {heroStats.matchups.against.length > 0 ? heroStats.matchups.against.slice(0,5).map(enemy => {
-                        const gamesPlayed = typeof enemy.games_played === 'object' && enemy.games_played !== null ? enemy.games_played.games : enemy.games_played;
-                        // For enemies, 'wins' means games the player won against this enemy hero.
-                        const winsAgainstEnemy = enemy.wins; 
-                        const winRateAgainstEnemy = (gamesPlayed > 0 && typeof winsAgainstEnemy === 'number') ? (winsAgainstEnemy / gamesPlayed) * 100 : 0;
-                        return (
-                          <div key={enemy.hero_id} className="bg-gray-700/50 p-3 rounded-lg mb-3 shadow-md border border-gray-600/50">
-                            <p className="font-medium text-white">{enemy.hero_name || `Hero ID: ${enemy.hero_id}`}</p>
-                            <p className="text-sm text-gray-300">Games: {gamesPlayed !== undefined ? gamesPlayed : 'N/A'}, Wins (Player): {winsAgainstEnemy !== undefined ? winsAgainstEnemy : 'N/A'}</p>
-                            <p className={`text-sm font-semibold ${winRateAgainstEnemy >= 50 ? 'text-green-400' : 'text-red-400'}`}>Player Win Rate: {formatPercentage(winRateAgainstEnemy)}</p>
-                          </div>
-                        );
-                      }) : <p className="text-gray-400">No significant enemy data.</p>}
-                    </div>
-                  </div>
-                ) : <p className="text-gray-400">No matchup data available for the analyzed matches.</p>}
-              </div>
-            )}
-
             {selectedTab === 'recent' && (
               <div>
                 <h2 className="text-2xl font-semibold text-white mb-6 border-b-2 border-blue-500/50 pb-2">Recent Matches</h2>
                 {heroStats.recent_matches && heroStats.recent_matches.length > 0 ? (
                   <div className="space-y-4">
                     {heroStats.recent_matches.map(match => (
-                      <motion.div 
+                      <>
+                      <Link to={`/dota2/match/${match.match_id}`} key={match.match_id}>
+                       <motion.div 
                         key={match.match_id} 
                         className={`p-4 rounded-lg shadow-lg border ${match.won ? 'border-green-500/50 bg-green-800/20' : 'border-red-500/50 bg-red-800/20'} hover:shadow-green-500/20 transition-all duration-200`}
                         initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.random() * 0.3 }}
@@ -330,6 +340,9 @@ export default function DetailedHeroStats() {
                           </div>
                         </div>
                       </motion.div>
+                       </Link>
+                       </>
+                     
                     ))}
                   </div>
                 ) : <p className="text-gray-400">No recent match details available for the analyzed set.</p>}

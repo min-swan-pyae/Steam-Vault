@@ -244,4 +244,31 @@ export const dotaService = {
     }
   },
 
+  // Item utilities
+  getItemImageUrl: (itemName) => {
+    if (!itemName) return null;
+    
+    // Convert display name back to item key format for URL
+    // Remove "item_" prefix if present, convert to lowercase, replace spaces with underscores
+    const cleanName = itemName.toLowerCase()
+      .replace(/^item_/, '')
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, ''); // Remove special characters
+    
+    // Use the same format as MatchDetails
+    return `https://cdn.dota2.com/apps/dota2/images/dota_react/items/${cleanName}.png?t=1593393829403`;
+  },
+
+  getItemImageFallbackUrl: (itemName) => {
+    if (!itemName) return null;
+    
+    const cleanName = itemName.toLowerCase()
+      .replace(/^item_/, '')
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
+    
+    // Fallback without timestamp
+    return `https://cdn.dota2.com/apps/dota2/images/dota_react/items/${cleanName}.png`;
+  },
+
 };

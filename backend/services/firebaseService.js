@@ -4,18 +4,23 @@ import { getFirestore } from 'firebase-admin/firestore';
 class FirebaseService {
   constructor() {
     if (!admin.apps.length) {
-      // Initialize Firebase Admin with service account
-      // In production, use environment variables or service account key
+      // Initialize Firebase Admin with service account from environment variables
+      const serviceAccount = {
+        type: "service_account",
+        project_id: process.env.FIREBASE_PROJECT_ID,
+        client_email: process.env.FIREBASE_CLIENT_EMAIL,
+        private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+      };
+
       admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
-        // You can also use a service account key file:
-        // credential: admin.credential.cert(serviceAccountKey),
+        credential: admin.credential.cert(serviceAccount),
         projectId: process.env.FIREBASE_PROJECT_ID || 'steam-vault-dev'
       });
     }
     
     this.db = getFirestore();
-    console.log('Firebase Admin initialized');
+    this.db.settings({ ignoreUndefinedProperties: true });
+    console.log('Firebase Admin initialized with ignoreUndefinedProperties enabled');
   }
 
   // Collections
@@ -133,12 +138,18 @@ class FirebaseService {
   }
 
   async getPlayerMaps(steamId) {
-    const mapsSnapshot = await this.mapStats
-      .where('steamId', '==', steamId)
-      .orderBy('totalMatches', 'desc')
-      .get();
-    
-    return mapsSnapshot.docs.map(doc => doc.data());
+    try {
+      const mapsSnapshot = await this.mapStats
+        .where('steamId', '==', steamId)
+        .get();
+      
+      // Sort in memory instead of requiring a composite index
+      const maps = mapsSnapshot.docs.map(doc => doc.data());
+      return maps.sort((a, b) => (b.totalMatches || 0) - (a.totalMatches || 0));
+    } catch (error) {
+      console.error('[FIREBASE] Error fetching player maps:', error);
+      return [];
+    }
   }
 
   // Aggregated statistics
@@ -359,6 +370,263 @@ class FirebaseService {
       console.error('Error getting recent activity:', error);
       return [];
     }
+  }
+
+  // CS2 GSI Methods
+  async saveGSIConfig(steamId, config) {
+    try {
+      const configRef = this.db.collection('gsiConfigs').doc(steamId);
+      await configRef.set({
+        steamId,
+        config,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      console.log(`[FIREBASE] GSI config saved for ${steamId}`);
+    } catch (error) {
+      console.error('[FIREBASE] Error saving GSI config:', error);
+      throw error;
+    }
+  }
+
+  async processGSIData(steamId, gsiData) {
+    try {
+      // Extract relevant data from GSI payload
+      const { map, round, player, allplayers } = gsiData;
+      
+      console.log(`[FIREBASE] Processing GSI data for ${steamId}`);
+      console.log(`[FIREBASE] Has player data: ${!!player}`);
+      console.log(`[FIREBASE] Has map data: ${!!map}`);
+      console.log(`[FIREBASE] Round phase: ${round?.phase || 'unknown'}`);
+      
+      // Always update player stats if we have player data, even if map is missing
+      if (player && player.state) {
+        console.log(`[FIREBASE] Updating player stats with state:`, player.state);
+        await this.updatePlayerStats(steamId, player);
+      }
+
+      // Process match data only when round ends
+      if (round && round.phase === 'over' && map && player) {
+        console.log(`[FIREBASE] Processing match end`);
+        await this.processMatchEnd(steamId, gsiData);
+      }
+
+      console.log(`[FIREBASE] ✅ GSI data processed successfully for ${steamId}`);
+    } catch (error) {
+      console.error('[FIREBASE] ❌ Error processing GSI data:', error);
+      throw error;
+    }
+  }
+
+  async processMatchEnd(steamId, gsiData) {
+    try {
+      const { map, round, player, allplayers } = gsiData;
+      
+      const matchData = {
+        steamId,
+        matchId: `${steamId}_${Date.now()}`,
+        mapName: map.name,
+        result: this.determineMatchResult(player, allplayers),
+        kills: player.state.kills || 0,
+        deaths: player.state.deaths || 0,
+        assists: player.state.assists || 0,
+        mvps: player.state.mvps || 0,
+        score: player.state.score || 0,
+        duration: round.phase_countdowns?.freezetime || 0,
+        date: admin.firestore.FieldValue.serverTimestamp()
+      };
+
+      await this.matches.add(matchData);
+      console.log(`[FIREBASE] Match saved for ${steamId}`);
+    } catch (error) {
+      console.error('[FIREBASE] Error saving match:', error);
+      throw error;
+    }
+  }
+
+  async updatePlayerStats(steamId, playerData) {
+    try {
+      const statsRef = this.playerStats.doc(steamId);
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      // Safely extract values with defaults
+      const kills = playerData.state?.kills || playerData.state?.round_kills || 0;
+      const deaths = playerData.state?.deaths || 0;  
+      const assists = playerData.state?.assists || 0;
+      const mvps = playerData.state?.mvps || 0;
+      
+      // Calculate KD ratio safely
+      let kdRatio = 0;
+      if (deaths > 0) {
+        kdRatio = parseFloat((kills / deaths).toFixed(2));
+      } else if (kills > 0) {
+        kdRatio = kills; // If no deaths but has kills, KD is just kills
+      }
+      
+      // Make sure kdRatio is a valid number
+      if (isNaN(kdRatio) || !isFinite(kdRatio)) {
+        kdRatio = 0;
+      }
+      
+      const statsData = {
+        steamId: steamId || 'unknown',
+        totalKills: Number(kills) || 0,
+        totalDeaths: Number(deaths) || 0,
+        totalAssists: Number(assists) || 0,
+        totalMVPs: Number(mvps) || 0,
+        kdRatio: Number(kdRatio) || 0,
+        lastUpdated: timestamp,
+        lastSeen: timestamp
+      };
+      
+      // Final validation - remove any undefined values
+      Object.keys(statsData).forEach(key => {
+        if (statsData[key] === undefined || statsData[key] === null || isNaN(statsData[key])) {
+          if (key === 'steamId') {
+            statsData[key] = 'unknown';
+          } else if (key === 'lastUpdated' || key === 'lastSeen') {
+            // Keep timestamp as is
+          } else {
+            statsData[key] = 0;
+          }
+        }
+      });
+      
+      console.log(`[FIREBASE] Final stats data for ${steamId}:`, JSON.stringify(statsData, null, 2));
+      
+      await statsRef.set(statsData, { merge: true });
+      
+      console.log(`[FIREBASE] ✅ Player stats updated for ${steamId}`);
+    } catch (error) {
+      console.error('[FIREBASE] Error updating player stats:', error);
+      throw error;
+    }
+  }
+
+  async getPlayerStats(steamId) {
+    try {
+      const statsDoc = await this.playerStats.doc(steamId).get();
+      return statsDoc.exists ? statsDoc.data() : null;
+    } catch (error) {
+      console.error('[FIREBASE] Error getting player stats:', error);
+      throw error;
+    }
+  }
+
+  async getPlayerMatches(steamId, limit = 20, offset = 0) {
+    try {
+      // First, get all matches for the player without ordering
+      const matchesQuery = this.matches
+        .where('steamId', '==', steamId);
+      
+      const snapshot = await matchesQuery.get();
+      const allMatches = snapshot.docs.map(doc => doc.data());
+      
+      // Sort in memory by date (newest first)
+      const sortedMatches = allMatches.sort((a, b) => {
+        const dateA = a.date ? new Date(a.date) : new Date(0);
+        const dateB = b.date ? new Date(b.date) : new Date(0);
+        return dateB - dateA;
+      });
+      
+      // Apply pagination in memory
+      const startIndex = offset;
+      const endIndex = startIndex + limit;
+      
+      return sortedMatches.slice(startIndex, endIndex);
+    } catch (error) {
+      console.error('[FIREBASE] Error getting player matches:', error);
+      throw error;
+    }
+  }
+
+  async getPlayerWeapons(steamId) {
+    try {
+      const weaponsQuery = this.weaponStats
+        .where('steamId', '==', steamId);
+      
+      const snapshot = await weaponsQuery.get();
+      const weapons = snapshot.docs.map(doc => doc.data());
+      
+      // Sort in memory by kills (descending)
+      return weapons.sort((a, b) => (b.kills || 0) - (a.kills || 0));
+    } catch (error) {
+      console.error('[FIREBASE] Error getting player weapons:', error);
+      throw error;
+    }
+  }
+
+  async getPlayerMaps(steamId) {
+    try {
+      const mapsQuery = this.mapStats
+        .where('steamId', '==', steamId);
+      
+      const snapshot = await mapsQuery.get();
+      const maps = snapshot.docs.map(doc => doc.data());
+      
+      // Sort in memory by matches played (descending)
+      return maps.sort((a, b) => (b.matchesPlayed || 0) - (a.matchesPlayed || 0));
+    } catch (error) {
+      console.error('[FIREBASE] Error getting player maps:', error);
+      throw error;
+    }
+  }
+
+  async getCS2Leaderboard(type = 'kills', limit = 100) {
+    try {
+      let field = 'totalKills';
+      switch (type) {
+        case 'kd': field = 'kdRatio'; break;
+        case 'mvps': field = 'totalMVPs'; break;
+        default: field = 'totalKills';
+      }
+      
+      const leaderboardQuery = this.playerStats
+        .orderBy(field, 'desc')
+        .limit(limit);
+      
+      const snapshot = await leaderboardQuery.get();
+      return snapshot.docs.map(doc => doc.data());
+    } catch (error) {
+      console.error('[FIREBASE] Error getting CS2 leaderboard:', error);
+      throw error;
+    }
+  }
+
+  async searchCS2Players(query, limit = 20) {
+    try {
+      // Simple search by Steam ID (can be enhanced with player names)
+      const searchQuery = this.playerStats
+        .where('steamId', '>=', query)
+        .where('steamId', '<=', query + '\uf8ff')
+        .limit(limit);
+      
+      const snapshot = await searchQuery.get();
+      return snapshot.docs.map(doc => doc.data());
+    } catch (error) {
+      console.error('[FIREBASE] Error searching CS2 players:', error);
+      throw error;
+    }
+  }
+
+  async getCS2RecentActivity(limit = 50) {
+    try {
+      const activityQuery = this.matches
+        .orderBy('date', 'desc')
+        .limit(limit);
+      
+      const snapshot = await activityQuery.get();
+      return snapshot.docs.map(doc => doc.data());
+    } catch (error) {
+      console.error('[FIREBASE] Error getting CS2 recent activity:', error);
+      throw error;
+    }
+  }
+
+  determineMatchResult(player, allplayers) {
+    // Simple win/loss determination logic
+    // This can be enhanced based on actual game state data
+    return player.state.score > 15 ? 'Win' : 'Loss';
   }
 }
 

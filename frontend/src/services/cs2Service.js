@@ -5,7 +5,7 @@ import api from './api';
 export const cs2Service = {
   getPlayerStats: async (steamId) => {
     try {
-      const response = await api.get(`api/cs2/player/${steamId}`);
+      const response = await api.get(`/api/cs2/player/${steamId}/stats`);
       return response;
     } catch (error) {
       console.error('Error fetching CS2 player stats:', error);
@@ -25,7 +25,7 @@ export const cs2Service = {
   
   getPlayerWeapons: async (steamId) => {
     try {
-      const response = await api.get(`api/cs2/player/${steamId}/weapons`);
+      const response = await api.get(`/api/cs2/player/${steamId}/weapons`);
       return response;
     } catch (error) {
       console.error('Error fetching CS2 player weapons:', error);
@@ -35,7 +35,7 @@ export const cs2Service = {
   
   getPlayerMaps: async (steamId) => {
     try {
-      const response = await api.get(`api/cs2/player/${steamId}/maps`);
+      const response = await api.get(`/api/cs2/player/${steamId}/maps`);
       return response;
     } catch (error) {
       console.error('Error fetching CS2 player maps:', error);

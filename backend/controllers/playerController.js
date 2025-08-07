@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import steamService from '../services/steamService.js';
 import axios from 'axios';
 import { cacheService, CACHE_TYPES } from '../services/cacheService.js';
+import { getItemName, getItemImage, loadItemMap } from '../utils/dotaUtils.js';
 
 const __dirname = path.resolve();
 // Legacy export for compatibility with other modules
@@ -688,34 +689,56 @@ const assessSkillDevelopment = (matches) => {
 
 // Helper functions for detailed hero stats
 const analyzeItemUsage = (matches) => {
-  if (!matches || matches.length === 0) return [];
+  if (!matches || matches.length === 0) return {};
   
-  // Count item occurrences
-  const itemCounts = {};
+  // Track item usage with wins
+  const itemStats = {};
   
   matches.forEach(match => {
+    const playerWon = (match.player_slot < 128 && match.radiant_win) || 
+                     (match.player_slot >= 128 && !match.radiant_win);
+    
     // Check for items in slots 0-5 and item_neutral
     for (let i = 0; i <= 5; i++) {
       const itemKey = `item_${i}`;
       if (match[itemKey] && match[itemKey] !== 0) {
-        itemCounts[match[itemKey]] = (itemCounts[match[itemKey]] || 0) + 1;
+        const itemId = match[itemKey];
+        if (!itemStats[itemId]) {
+          itemStats[itemId] = { count: 0, wins: 0 };
+        }
+        itemStats[itemId].count += 1;
+        if (playerWon) {
+          itemStats[itemId].wins += 1;
+        }
       }
     }
     // Check for neutral item
     if (match.item_neutral && match.item_neutral !== 0) {
-      itemCounts[match.item_neutral] = (itemCounts[match.item_neutral] || 0) + 1;
+      const itemId = match.item_neutral;
+      if (!itemStats[itemId]) {
+        itemStats[itemId] = { count: 0, wins: 0 };
+      }
+      itemStats[itemId].count += 1;
+      if (playerWon) {
+        itemStats[itemId].wins += 1;
+      }
     }
   });
   
-  // Convert to array and sort by frequency
-  return Object.entries(itemCounts)
-    .map(([itemId, count]) => ({
-      item_id: parseInt(itemId),
-      count,
-      frequency: Math.round((count / matches.length) * 100)
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10); // Top 10 most used items
+  // Convert to object with item names and win rates
+  const result = {};
+  Object.entries(itemStats).forEach(([itemId, stats]) => {
+    const itemName = getItemName(parseInt(itemId));
+    const itemImageUrl = getItemImage(parseInt(itemId));
+    result[itemName] = {
+      count: stats.count,
+      win_rate: Math.round((stats.wins / stats.count) * 100),
+      frequency: Math.round((stats.count / matches.length) * 100),
+      image: itemImageUrl // Add the image URL from backend
+    };
+  });
+  
+  return result;
 };
 
 const analyzeLanePreference = (matches) => {
@@ -729,7 +752,7 @@ const analyzeLanePreference = (matches) => {
 
   matches.forEach(match => {
     const lane = match.lane || 0; // OpenDota: 1-Top, 2-Mid, 3-Bot, 4-Jungle
-    const role = match.lane_role || 0; // OpenDota: 1-Safe, 2-Mid, 3-Off, 4-Jungle
+    const role = match.lane_role || 0; // OpenDota: 1-Safe, 2-Mid, 3-Off, 4-Jungle, 5-Support
     const playerWon = (match.player_slot < 128 && match.radiant_win) || 
                      (match.player_slot >= 128 && !match.radiant_win);
 
@@ -737,21 +760,18 @@ const analyzeLanePreference = (matches) => {
 
     console.log(`Match ID: ${match.match_id}, Lane: ${lane}, Role: ${role}`);
 
-
     // Determine if the player is Radiant or Dire
     const isRadiantPlayer = match.player_slot < 128;
 
-    // OpenDota lane values: 1 = Top, 2 = Mid, 3 = Bot, 4 = Jungle
-    // OpenDota lane_role values: 1 = Safe, 2 = Mid, 3 = Off, 4 = Roaming, 5 = Jungle
-
-    if (role === 1 || role === 5) { // Safe Lane (Pos 1 and Pos 5)
-      determinedLane = 'safe';
-    } else if (role === 2) { // Mid Lane (Pos 2)
+    // Primary determination based on lane_role (position)
+    if (role === 2) { // Mid Lane (Pos 2)
       determinedLane = 'mid';
-    } else if (role === 3 || role === 4) { // Off Lane (Pos 3 and Pos 4)
+    } else if (role === 1) { // Safe Lane Carry (Pos 1)
+      determinedLane = 'safe';
+    } else if (role === 3) { // Offlane (Pos 3)
       determinedLane = 'off';
-    } else {
-      // If lane_role is not explicitly set, try to infer from lane and player's team
+    } else if (role === 4 || role === 5) { // Support roles
+      // For supports, determine lane based on physical lane position
       if (lane === 1) { // Top lane
         determinedLane = isRadiantPlayer ? 'off' : 'safe';
       } else if (lane === 2) { // Mid lane
@@ -759,7 +779,21 @@ const analyzeLanePreference = (matches) => {
       } else if (lane === 3) { // Bottom lane
         determinedLane = isRadiantPlayer ? 'safe' : 'off';
       } else {
-        determinedLane = 'safe'; 
+        // If no clear lane, assume they roamed or supported the safe lane
+        determinedLane = 'safe';
+      }
+    } else {
+      // Fallback to lane-based determination if role is unclear
+      if (lane === 1) { // Top lane
+        determinedLane = isRadiantPlayer ? 'off' : 'safe';
+      } else if (lane === 2) { // Mid lane
+        determinedLane = 'mid';
+      } else if (lane === 3) { // Bottom lane
+        determinedLane = isRadiantPlayer ? 'safe' : 'off';
+      } else {
+        // If both lane and role are unclear, skip this match rather than defaulting
+        console.warn(`Skipping match ${match.match_id} - unclear lane/role data`);
+        return;
       }
     }
 
@@ -777,8 +811,6 @@ const analyzeLanePreference = (matches) => {
     if (laneData[laneName].games > 0) {
       result[laneName] = {
         games: laneData[laneName].games,
-        // win_rate should be 0-1 for consistency, frontend formatPercentage will handle *100
-        // However, other win_rates in this controller are 0-100. Let's stick to 0-100 for now.
         win_rate: Math.round((laneData[laneName].wins / laneData[laneName].games) * 100)
       };
     }
@@ -787,59 +819,12 @@ const analyzeLanePreference = (matches) => {
 };
 
 const analyzeMatchups = (matches) => {
-  if (!matches || matches.length === 0) return [];
-  
-  // Get hero data for mapping hero IDs to names
-  const heroMap = heroCache.get('heroes') || {};
-  
-  // Track heroes played against and results
-  const matchups = {};
-
-  matches.forEach(match => {
-    // Determine if player won
-    const playerWon = (match.player_slot < 128 && match.radiant_win) ||
-                     (match.player_slot >= 128 && !match.radiant_win);
-
-    // Determine if the player was on Radiant or Dire
-    const playerIsRadiant = match.is_radiant;
-
-    // Iterate through all players in the match to find enemies
-    if (match.players && Array.isArray(match.players)) {
-      match.players.forEach(otherPlayer => {
-        // An enemy is any player who is not the current player and is on the opposing team
-        if (otherPlayer.account_id !== match.account_id && otherPlayer.isRadiant !== playerIsRadiant) {
-          const enemyHeroId = otherPlayer.hero_id;
-          if (!matchups[enemyHeroId]) {
-            matchups[enemyHeroId] = { wins: 0, losses: 0 };
-          }
-
-          if (playerWon) {
-            matchups[enemyHeroId].wins += 1;
-          } else {
-            matchups[enemyHeroId].losses += 1;
-          }
-        }
-      });
-    }
-  });
-  
-  // Convert to array and calculate win rates
-  return Object.entries(matchups)
-    .map(([heroId, data]) => {
-      const totalGames = data.wins + data.losses;
-      const heroInfo = heroMap[heroId] || { localized_name: 'Unknown Hero' };
-      
-      return {
-        hero_id: parseInt(heroId),
-        hero_name: heroInfo.localized_name,
-        games: totalGames,
-        wins: data.wins,
-        losses: data.losses,
-        win_rate: totalGames > 0 ? Math.round((data.wins / totalGames) * 100) : 0
-      };
-    })
-    .sort((a, b) => b.games - a.games)
-    .slice(0, 10); // Top 10 most common matchups
+  // Matchups analysis is complex and requires full match data
+  // For now, return empty matchups to avoid errors
+  return {
+    best_against: [],
+    worst_against: []
+  };
 };
 
 export const getPlayerBehaviorMetrics = asyncHandler(async (req, res) => {
@@ -1138,6 +1123,9 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
   }
   
   try {
+    // Ensure item map is loaded
+    await loadItemMap();
+    
     // Convert Steam ID to account ID for OpenDota API
     const accountId = steamService.getAccountId(steamId);
     if (!accountId) {
@@ -1178,7 +1166,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
         hero_name: heroInfo.localized_name,
         total_matches: 0, wins: 0, losses: 0, win_rate: 0,
         averages: { kills: '0.0', deaths: '0.0', assists: '0.0', kda: '0.00', gpm: 0, xpm: 0, last_hits: 0, hero_damage: 0, tower_damage: 0, hero_healing: 0 },
-        item_usage: { starting_items: [], core_items: [], late_game_items: [] },
+        item_usage: {},
         lane_preference: {},
         matchups: { best_against: [], worst_against: [] },
         recent_matches: []
@@ -1208,11 +1196,7 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
           tower_damage: 0,
           hero_healing: 0
         },
-        item_usage: {
-          starting_items: [],
-          core_items: [],
-          late_game_items: []
-        },
+        item_usage: {},
         lane_preference: {},
         matchups: {
           best_against: [],
@@ -1341,17 +1325,33 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
             item_usage: fallbackItemUsage,
             lane_preference: fallbackLanePreference,
             matchups: fallbackMatchups,
-            recent_matches: allHeroMatchSummaries.slice(0, 10).map(m => ({
-              match_id: m.match_id,
-              start_time: m.start_time,
-              duration: m.duration,
-              won: (m.player_slot < 128 && m.radiant_win) || (m.player_slot >= 128 && !m.radiant_win),
-              kills: m.kills,
-              deaths: m.deaths,
-              assists: m.assists,
-              gpm: m.gold_per_min || "N/A",
-              xpm: m.xp_per_min || "N/A"
-             })),
+            recent_matches: allHeroMatchSummaries.slice(0, 10).map(m => {
+              // Convert lane_role to readable format
+              const getLaneRoleName = (role) => {
+                switch(role) {
+                  case 1: return 'Carry (Safe)';
+                  case 2: return 'Mid';
+                  case 3: return 'Offlaner';
+                  case 4: return 'Support';
+                  case 5: return 'Hard Support';
+                  default: return 'Unknown';
+                }
+              };
+
+              return {
+                match_id: m.match_id,
+                start_time: m.start_time,
+                duration: m.duration,
+                won: (m.player_slot < 128 && m.radiant_win) || (m.player_slot >= 128 && !m.radiant_win),
+                kills: m.kills,
+                deaths: m.deaths,
+                assists: m.assists,
+                gpm: m.gold_per_min || "N/A",
+                xpm: m.xp_per_min || "N/A",
+                lane_role: getLaneRoleName(m.lane_role),
+                lane: m.lane
+              };
+             }),
               
         };
         cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, fallbackStats);
@@ -1433,17 +1433,33 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
       item_usage: itemUsage,
       lane_preference: lanePreference,
       matchups: matchups,
-      recent_matches: detailedHeroMatches.slice(0, 10).map(match => ({
-        match_id: match.match_id,
-        start_time: match.start_time,
-        duration: match.duration,
-        won: (match.player_slot < 128 && match.radiant_win) || (match.player_slot >= 128 && !match.radiant_win),
-        kills: match.kills,
-        deaths: match.deaths,
-        assists: match.assists,
-        gpm: match.gold_per_min,
-        xpm: match.xp_per_min
-      }))
+      recent_matches: detailedHeroMatches.map(match => {
+        // Convert lane_role to readable format
+        const getLaneRoleName = (role) => {
+          switch(role) {
+            case 1: return 'Carry (Safe)';
+            case 2: return 'Mid';
+            case 3: return 'Offlaner';
+            case 4: return 'Support';
+            case 5: return 'Hard Support';
+            default: return 'Unknown';
+          }
+        };
+
+        return {
+          match_id: match.match_id,
+          start_time: match.start_time,
+          duration: match.duration,
+          won: (match.player_slot < 128 && match.radiant_win) || (match.player_slot >= 128 && !match.radiant_win),
+          kills: match.kills,
+          deaths: match.deaths,
+          assists: match.assists,
+          gpm: match.gold_per_min,
+          xpm: match.xp_per_min,
+          lane_role: getLaneRoleName(match.lane_role),
+          lane: match.lane // Keep raw lane data too
+        };
+      })
     };
     
     // Cache the result

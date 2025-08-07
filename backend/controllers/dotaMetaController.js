@@ -36,7 +36,7 @@ export const getProPlayersLive = asyncHandler(async (req, res) => {
   try {
     console.log('DEBUG - Fetching pro players from Steam API');
 
-       const notablePlayers = players;
+    const notablePlayers = players;
 
     // Get live league games from Steam API
     console.log('DEBUG - Calling OpenDota API with URL: /live');
@@ -103,92 +103,120 @@ export const getProPlayersLive = asyncHandler(async (req, res) => {
     
     console.log('DEBUG - Found', proPlayersLive.length, 'pro players in live games');
 
-    // Use a fallback with players from other games if no pro players found
-    const realData = [];
+    // Fallback to public matches if no pro players found
+    const publicData = [];
     
     if (proPlayersLive.length === 0 && liveGames.length > 0) {
-      // Extract some players from live games
       console.log('DEBUG - Using regular players from live games as fallback');
+      const processedPublicMatchIds = new Set();
+      const processedPublicPlayerIds = new Set();
+
       for (const game of liveGames) {
-        if (processedMatchIds.size >= 6) break; // Limit to 6 unique matches
-        if (processedMatchIds.has(game.match_id)) continue; // Skip if match already processed
+        if (processedPublicMatchIds.size >= 6) break; // Limit to 6 unique matches
+        if (processedPublicMatchIds.has(game.match_id)) continue; // Skip if match already processed
 
         let selectedPlayerForMatch = null;
 
         // Find the first available player for this match
         for (const player of game.players || []) {
-          if (processedPlayerIds.has(player.account_id)) continue; // Skip if player already processed globally
+          if (processedPublicPlayerIds.has(player.account_id)) continue; // Skip if player already processed globally
 
-          const teamIdentifier = player.team === 0 ? game.team_name_radiant : game.team_name_dire;
-          if (processedTeamNames.has(teamIdentifier)) continue;
+          try {
+            // Get player name from Steam API
+            const steamId64 = steamService.getSteamId64(player.account_id);
+            const playerName = await steamService.getSteamPersonaName(steamId64);
 
-          selectedPlayerForMatch = {
-            account_id: player.account_id || 0,
-            name: (await steamService.getSteamPersonaName(steamService.getSteamId64(player.account_id))) || `Player ${player.account_id}`,
-            team_name: '', // No specific team name for public players
-            match_id: game.match_id,
-            hero_id: player.hero_id || 1,
-            team: player.team === 0 ? 'Radiant' : 'Dire',
-            team_name_radiant: game.team_name_radiant,
-            team_name_dire: game.team_name_dire,
-            radiant_score: game.radiant_score,
-            dire_score: game.dire_score
-          };
-          break; // Found a player, use this one for the match and move to next game
+            selectedPlayerForMatch = {
+              account_id: player.account_id || 0,
+              name: playerName || `Player ${player.account_id}`,
+              team_name: player.team === 0 ? (game.team_name_radiant || 'Radiant') : (game.team_name_dire || 'Dire'),
+              match_id: game.match_id,
+              hero_id: player.hero_id || 1,
+              team: player.team === 0 ? 'Radiant' : 'Dire',
+              kills: player.kills || 0,
+              deaths: player.deaths || 0,
+              assists: player.assists || 0,
+              last_hits: player.last_hits || 0,
+              denies: player.denies || 0,
+              gold_per_min: player.gold_per_min || 0,
+              xp_per_min: player.xp_per_min || 0,
+              level: player.level || 0,
+              net_worth: player.net_worth || 0,
+              team_name_radiant: game.team_name_radiant,
+              team_name_dire: game.team_name_dire,
+              radiant_score: game.radiant_score,
+              dire_score: game.dire_score
+            };
+            break; // Found a player, use this one for the match and move to next game
+          } catch (error) {
+            console.error('Error fetching player name:', error);
+            continue; // Try next player
+          }
         }
 
         if (selectedPlayerForMatch) {
-          realData.push(selectedPlayerForMatch);
-          processedMatchIds.add(game.match_id);
-          processedPlayerIds.add(selectedPlayerForMatch.account_id);
-          const teamIdentifier = selectedPlayerForMatch.team === 'Radiant' ? selectedPlayerForMatch.team_name_radiant : selectedPlayerForMatch.team_name_dire;
-          processedTeamNames.add(teamIdentifier);
-        }
-
-        if (radiantPlayerAdded || direPlayerAdded) {
-          processedMatchIds.add(game.match_id);
+          publicData.push(selectedPlayerForMatch);
+          processedPublicMatchIds.add(game.match_id);
+          processedPublicPlayerIds.add(selectedPlayerForMatch.account_id);
         }
       }
     }
 
     // Only use mock data if absolutely no real data is available
     const result = proPlayersLive.length > 0 ? proPlayersLive : 
-                 realData.length > 0 ? realData : [
+                 publicData.length > 0 ? publicData : [
       {
         account_id: 73562326,
         name: "Arteezy (Sample)",
         team_name: "Evil Geniuses",
         match_id: 123456789,
         hero_id: 89,
-        team: "Radiant"
+        team: "Radiant",
+        kills: 5,
+        deaths: 2,
+        assists: 8,
+        last_hits: 150,
+        denies: 10,
+        gold_per_min: 450,
+        xp_per_min: 520,
+        level: 18,
+        net_worth: 15000,
+        team_name_radiant: "Evil Geniuses",
+        team_name_dire: "Team Secret",
+        radiant_score: 15,
+        dire_score: 8
       },
       {
         account_id: 86745912,
         name: "Miracle- (Sample)",
         team_name: "Nigma Galaxy",
-        match_id: 123456789,
-        hero_id: 74,
-        team: "Dire"
-      },
-      {
-        account_id: 94054712,
-        name: "N0tail (Sample)",
-        team_name: "OG",
         match_id: 123456790,
-        hero_id: 66,
-        team: "Radiant"
+        hero_id: 74,
+        team: "Dire",
+        kills: 8,
+        deaths: 1,
+        assists: 12,
+        last_hits: 200,
+        denies: 15,
+        gold_per_min: 550,
+        xp_per_min: 650,
+        level: 20,
+        net_worth: 18000,
+        team_name_radiant: "OG",
+        team_name_dire: "Nigma Galaxy",
+        radiant_score: 10,
+        dire_score: 20
       }
     ];
 
-    if (proPlayersLive.length === 0 && realData.length === 0) {
-      console.log('DEBUG - Using sample data since no real data is available');
-    }
-
     const responseData = {
       data: result,
-      isPublicMatchData: proPlayersLive.length === 0
+      isPublicMatchData: proPlayersLive.length === 0 && publicData.length > 0,
+      isMockData: proPlayersLive.length === 0 && publicData.length === 0
     };
-    cacheService.set(CACHE_TYPES.META_DATA, cacheKey, responseData);
+    
+    // Cache with shorter TTL for live data
+    cacheService.set(CACHE_TYPES.META_DATA, cacheKey, responseData, 60); // 1 minute cache
     return res.json(responseData);
   } catch (error) {
     console.error('DEBUG - Error fetching pro players from OpenDota API:', error.message);
