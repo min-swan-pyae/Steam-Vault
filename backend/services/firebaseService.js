@@ -1,8 +1,11 @@
 import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
+import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 
 class FirebaseService {
   constructor() {
+    
     if (!admin.apps.length) {
       // Initialize Firebase Admin with service account from environment variables
       const serviceAccount = {
@@ -21,14 +24,38 @@ class FirebaseService {
     this.db = getFirestore();
     this.db.settings({ ignoreUndefinedProperties: true });
     console.log('Firebase Admin initialized with ignoreUndefinedProperties enabled');
+
+    // Initialize email transporter with App Password (simpler than OAuth)
+    this.emailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD
+      }
+    });
   }
 
-  // Collections
+  // Collections getters
   get users() { return this.db.collection('users'); }
+  get userProfiles() { return this.db.collection('userProfiles'); }
+  get sessions() { return this.db.collection('sessions'); }
+  get notifications() { return this.db.collection('notifications'); }
+  get emailConnections() { return this.db.collection('emailConnections'); }
+  get marketWatchlists() { return this.db.collection('marketWatchlists'); }
+  get priceAlerts() { return this.db.collection('priceAlerts'); }
+  get forumCategories() { return this.db.collection('forumCategories'); }
+  get forumPosts() { return this.db.collection('forumPosts'); }
+  get forumComments() { return this.db.collection('forumComments'); }
+  get forumReports() { return this.db.collection('forumReports'); }
+  get userActivity() { return this.db.collection('userActivity'); }
   get matches() { return this.db.collection('matches'); }
   get playerStats() { return this.db.collection('playerStats'); }
   get weaponStats() { return this.db.collection('weaponStats'); }
   get mapStats() { return this.db.collection('mapStats'); }
+  get gsiConfigs() { return this.db.collection('gsiConfigs'); }
+  get leaderboards() { return this.db.collection('leaderboards'); }
+  get marketCache() { return this.db.collection('marketCache'); }
+  get systemSettings() { return this.db.collection('systemSettings'); }
 
   // User management
   async createOrUpdateUser(steamId, userData) {
@@ -372,6 +399,39 @@ class FirebaseService {
     }
   }
 
+  // Marketplace watchlist helpers
+
+  async getWatchlist(steamId) {
+    const snapshot = await this.marketWatchlists.where('steamId', '==', steamId).get();
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  }
+
+  async addOrUpdateWatchItem(steamId, { appid, hashName, name = null, targetPrice = null, iconUrl = null, salePriceText = null, sellPriceText = null, currentPrice = null }) {
+    const id = `${steamId}_${appid}_${hashName}`;
+    const ref = this.marketWatchlists.doc(id);
+    await ref.set({
+      id,
+      steamId,
+      appid,
+      hashName,
+      name,
+      iconUrl,
+      targetPrice,
+      salePriceText,
+      sellPriceText,
+      currentPrice,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    return id;
+  }
+
+  async removeWatchItem(steamId, id) {
+    // Allow either composite id or doc id
+    const ref = this.marketWatchlists.doc(id.startsWith(steamId) ? id : `${steamId}_${id}`);
+    await ref.delete();
+  }
+
   // CS2 GSI Methods
   async saveGSIConfig(steamId, config) {
     try {
@@ -628,6 +688,685 @@ class FirebaseService {
     // This can be enhanced based on actual game state data
     return player.state.score > 15 ? 'Win' : 'Loss';
   }
+
+  // ===========================
+  // NEW ENHANCED FEATURES
+  // ===========================
+
+  // USER PROFILE MANAGEMENT
+  async createOrUpdateUserProfile(steamId, profileData) {
+    try {
+      const profileRef = this.userProfiles.doc();
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const profile = {
+        steamId,
+        ...profileData,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      
+      await profileRef.set(profile, { merge: true });
+      return profileRef;
+    } catch (error) {
+      console.error('[FIREBASE] Error creating user profile:', error);
+      throw error;
+    }
+  }
+
+  async getUserProfile(steamId) {
+    try {
+      const profileQuery = await this.userProfiles
+        .where('steamId', '==', steamId)
+        .limit(1)
+        .get();
+      
+      return profileQuery.empty ? null : profileQuery.docs[0].data();
+    } catch (error) {
+      console.error('[FIREBASE] Error getting user profile:', error);
+      throw error;
+    }
+  }
+
+  // EMAIL CONNECTION MANAGEMENT
+  async connectEmail(steamId, email, verificationToken = null) {
+    try {
+      const connectionRef = this.emailConnections.doc();
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const connection = {
+        steamId,
+        email,
+        isVerified: false,
+        verificationToken: verificationToken || crypto.randomUUID(),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      
+      await connectionRef.set(connection);
+      return connection;
+    } catch (error) {
+      console.error('[FIREBASE] Error connecting email:', error);
+      throw error;
+    }
+  }
+
+  async verifyEmail(steamId, verificationToken) {
+    try {
+      const connectionQuery = await this.emailConnections
+        .where('steamId', '==', steamId)
+        .where('verificationToken', '==', verificationToken)
+        .limit(1)
+        .get();
+      
+      if (connectionQuery.empty) {
+        return { success: false, error: 'Invalid or expired verification token' };
+      }
+      
+      const connectionDoc = connectionQuery.docs[0];
+      await connectionDoc.ref.update({
+        isVerified: true,
+        verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      return { success: true, data: connectionDoc.data() };
+    } catch (error) {
+      console.error('[FIREBASE] Error verifying email:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getUserEmail(steamId) {
+    try {
+      const connectionQuery = await this.emailConnections
+        .where('steamId', '==', steamId)
+        .where('isVerified', '==', true)
+        .limit(1)
+        .get();
+      
+      return connectionQuery.empty ? null : connectionQuery.docs[0].data();
+    } catch (error) {
+      console.error('[FIREBASE] Error getting user email:', error);
+      throw error;
+    }
+  }
+
+  // NOTIFICATION SYSTEM
+  async createNotification(steamId, notificationData) {
+    try {
+      const notificationRef = this.notifications.doc();
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const notification = {
+        steamId,
+        ...notificationData,
+        isRead: false,
+        isSent: false,
+        createdAt: timestamp
+      };
+      
+      await notificationRef.set(notification);
+      
+      // Try to send email notification if user has email connected
+      // Pass the notification with its ID
+      await this.sendEmailNotification(steamId, { ...notification, id: notificationRef.id });
+      
+      return notificationRef;
+    } catch (error) {
+      console.error('[FIREBASE] Error creating notification:', error);
+      throw error;
+    }
+  }
+
+  async sendEmailNotification(steamId, notification) {
+    try {
+      const emailConnection = await this.getUserEmail(steamId);
+      if (!emailConnection) {
+        console.log(`[FIREBASE] No verified email found for ${steamId}`);
+        return;
+      }
+      
+      const user = await this.getUser(steamId);
+      const mailOptions = {
+        from: process.env.GMAIL_USER,
+        to: emailConnection.email,
+        subject: `Steam Vault - ${notification.title}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #1976d2;">Steam Vault Notification</h2>
+            <h3>${notification.title}</h3>
+            <p>${notification.message}</p>
+            ${notification.data?.url ? `<a href="http://localhost:5173${notification.data.url}" style="background: #1976d2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Details</a>` : ''}
+            <hr style="margin: 20px 0;">
+            <p style="color: #666; font-size: 12px;">
+              This notification was sent to ${user?.displayName || 'you'} because you have notifications enabled in your Steam Vault account.
+              <br>
+              To unsubscribe, visit your <a href="http://localhost:5173/profile">profile settings</a>.
+            </p>
+          </div>
+        `
+      };
+      
+      await this.emailTransporter.sendMail(mailOptions);
+      
+      // Update notification as sent
+      await this.notifications.doc(notification.id).update({
+        isSent: true,
+        sentAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      console.log(`[FIREBASE] Email notification sent to ${emailConnection.email}`);
+    } catch (error) {
+      console.error('[FIREBASE] Error sending email notification:', error);
+      // Don't throw error - notification creation should succeed even if email fails
+    }
+  }
+
+  async getUserNotifications(steamId, limit = 50, includeRead = false) {
+    try {
+      let query = this.notifications
+        .where('steamId', '==', steamId);
+      
+      if (!includeRead) {
+        query = query.where('isRead', '==', false);
+      }
+      
+      query = query.orderBy('createdAt', 'desc').limit(limit);
+      
+      const snapshot = await query.get();
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('[FIREBASE] Error getting user notifications:', error);
+      throw error;
+    }
+  }
+
+  async markNotificationAsRead(steamId, notificationId) {
+    try {
+      const notificationRef = this.notifications.doc(notificationId);
+      const notificationDoc = await notificationRef.get();
+      
+      if (!notificationDoc.exists || notificationDoc.data().steamId !== steamId) {
+        throw new Error('Notification not found or access denied');
+      }
+      
+      await notificationRef.update({
+        isRead: true,
+        readAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (error) {
+      console.error('[FIREBASE] Error marking notification as read:', error);
+      throw error;
+    }
+  }
+
+  // PRICE ALERT SYSTEM
+  async checkPriceAlerts() {
+    try {
+      const watchlistQuery = await this.marketWatchlists
+        .where('alertsEnabled', '==', true)
+        .where('targetPrice', '>', 0)
+        .get();
+      
+      for (const watchlistDoc of watchlistQuery.docs) {
+        const watchlistItem = watchlistDoc.data();
+        
+        // Check if current price is below target price
+        if (watchlistItem.currentPrice && watchlistItem.currentPrice <= watchlistItem.targetPrice) {
+          await this.createPriceAlert(watchlistItem);
+        }
+      }
+    } catch (error) {
+      console.error('[FIREBASE] Error checking price alerts:', error);
+      throw error;
+    }
+  }
+
+  async createPriceAlert(watchlistItem) {
+    try {
+      // Check if alert already exists for this item
+      const existingAlertQuery = await this.priceAlerts
+        .where('watchlistItemId', '==', watchlistItem.id)
+        .where('isActive', '==', true)
+        .limit(1)
+        .get();
+      
+      if (!existingAlertQuery.empty) {
+        console.log(`[FIREBASE] Price alert already exists for ${watchlistItem.name}`);
+        return;
+      }
+      
+      const alertRef = this.priceAlerts.doc();
+      const alert = {
+        watchlistItemId: watchlistItem.id,
+        steamId: watchlistItem.steamId,
+        itemName: watchlistItem.name,
+        targetPrice: watchlistItem.targetPrice,
+        triggeredPrice: watchlistItem.currentPrice,
+        triggeredAt: admin.firestore.FieldValue.serverTimestamp(),
+        isActive: true
+      };
+      
+      await alertRef.set(alert);
+      
+      // Create notification
+      await this.createNotification(watchlistItem.steamId, {
+        type: 'price_drop',
+        title: 'Price Drop Alert!',
+        message: `${watchlistItem.name} price dropped to $${watchlistItem.currentPrice.toFixed(2)} (Target: $${watchlistItem.targetPrice.toFixed(2)})`,
+        data: {
+          itemId: watchlistItem.id,
+          oldPrice: watchlistItem.targetPrice,
+          newPrice: watchlistItem.currentPrice,
+          url: `/marketplace?search=${encodeURIComponent(watchlistItem.hashName)}&appid=${watchlistItem.appid || 730}`
+        }
+      });
+      
+      // Deactivate the alert to prevent spam
+      await alertRef.update({ isActive: false });
+      
+      console.log(`[FIREBASE] Price alert created for ${watchlistItem.name}`);
+    } catch (error) {
+      console.error('[FIREBASE] Error creating price alert:', error);
+      throw error;
+    }
+  }
+
+  // FORUM SYSTEM
+  async createForumCategory(categoryData) {
+    try {
+      const categoryRef = this.forumCategories.doc(categoryData.id || categoryData.name.toLowerCase().replace(/\s+/g, '-'));
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const category = {
+        ...categoryData,
+        stats: {
+          totalPosts: 0,
+          totalComments: 0,
+          lastActivity: timestamp
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      
+      await categoryRef.set(category, { merge: true });
+      return categoryRef;
+    } catch (error) {
+      console.error('[FIREBASE] Error creating forum category:', error);
+      throw error;
+    }
+  }
+
+  async getForumCategories() {
+    try {
+      const categoriesSnapshot = await this.forumCategories
+        .where('isActive', '==', true)
+        .orderBy('order')
+        .get();
+      
+      return categoriesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('[FIREBASE] Error getting forum categories:', error);
+      throw error;
+    }
+  }
+
+  async createForumPost(steamId, postData) {
+    try {
+      const postRef = this.forumPosts.doc();
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const user = await this.getUser(steamId);
+      const post = {
+        ...postData,
+        authorSteamId: steamId,
+        authorDisplayName: user?.displayName || 'Unknown User',
+        isPinned: false,
+        isLocked: false,
+        isDeleted: false,
+        stats: {
+          views: 0,
+          likes: 0,
+          dislikes: 0,
+          comments: 0
+        },
+        lastActivity: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        editHistory: []
+      };
+      
+      await postRef.set(post);
+      
+      // Update category stats
+      await this.updateCategoryStats(postData.categoryId, { posts: 1 });
+      
+      // Log user activity
+      await this.logUserActivity(steamId, 'post_created', {
+        postId: postRef.id,
+        postTitle: postData.title
+      });
+      
+      return postRef;
+    } catch (error) {
+      console.error('[FIREBASE] Error creating forum post:', error);
+      throw error;
+    }
+  }
+
+  async getForumPosts(categoryId, options = {}) {
+    try {
+      const { limit = 20, offset = 0, sortBy = 'lastActivity', sortOrder = 'desc' } = options;
+      
+      let query = this.forumPosts
+        .where('categoryId', '==', categoryId)
+        .where('isDeleted', '==', false);
+      
+      // Handle pinned posts first, then sort by specified criteria
+      if (sortBy === 'lastActivity') {
+        query = query.orderBy('isPinned', 'desc').orderBy('lastActivity', sortOrder);
+      } else {
+        query = query.orderBy('isPinned', 'desc').orderBy(sortBy, sortOrder);
+      }
+      
+      if (offset > 0) {
+        const offsetSnapshot = await query.limit(offset).get();
+        const lastDoc = offsetSnapshot.docs[offsetSnapshot.docs.length - 1];
+        query = query.startAfter(lastDoc);
+      }
+      
+      query = query.limit(limit);
+      
+      const snapshot = await query.get();
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('[FIREBASE] Error getting forum posts:', error);
+      throw error;
+    }
+  }
+
+  async createForumComment(steamId, commentData) {
+    try {
+      const commentRef = this.forumComments.doc();
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const user = await this.getUser(steamId);
+      const comment = {
+        ...commentData,
+        authorSteamId: steamId,
+        authorDisplayName: user?.displayName || 'Unknown User',
+        level: commentData.parentCommentId ? 1 : 0, // Simple threading
+        isDeleted: false,
+        stats: {
+          likes: 0,
+          dislikes: 0
+        },
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        editHistory: []
+      };
+      
+      await commentRef.set(comment);
+      
+      // Update post stats and last activity
+      const postRef = this.forumPosts.doc(commentData.postId);
+      await postRef.update({
+        'stats.comments': admin.firestore.FieldValue.increment(1),
+        lastActivity: timestamp,
+        lastCommentBy: steamId
+      });
+      
+      // Update category stats
+      const postDoc = await postRef.get();
+      if (postDoc.exists) {
+        await this.updateCategoryStats(postDoc.data().categoryId, { comments: 1 });
+      }
+      
+      // Log user activity
+      await this.logUserActivity(steamId, 'comment_added', {
+        postId: commentData.postId,
+        commentId: commentRef.id
+      });
+      
+      return commentRef;
+    } catch (error) {
+      console.error('[FIREBASE] Error creating forum comment:', error);
+      throw error;
+    }
+  }
+
+  async getForumComments(postId, options = {}) {
+    try {
+      const { limit = 50, sortOrder = 'asc' } = options;
+      
+      const snapshot = await this.forumComments
+        .where('postId', '==', postId)
+        .where('isDeleted', '==', false)
+        .orderBy('createdAt', sortOrder)
+        .limit(limit)
+        .get();
+      
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('[FIREBASE] Error getting forum comments:', error);
+      throw error;
+    }
+  }
+
+  async createForumReport(reporterSteamId, reportData) {
+    try {
+      const reportRef = this.forumReports.doc();
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const report = {
+        ...reportData,
+        reporterSteamId,
+        status: 'pending',
+        reviewedBy: null,
+        reviewedAt: null,
+        resolution: null,
+        resolutionNotes: null,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      
+      await reportRef.set(report);
+      
+      // Notify moderators (you can implement this)
+      console.log(`[FIREBASE] New report created by ${reporterSteamId}`);
+      
+      return reportRef;
+    } catch (error) {
+      console.error('[FIREBASE] Error creating forum report:', error);
+      throw error;
+    }
+  }
+
+  async updateCategoryStats(categoryId, changes) {
+    try {
+      const categoryRef = this.forumCategories.doc(categoryId);
+      const updates = {
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+      
+      if (changes.posts) {
+        updates['stats.totalPosts'] = admin.firestore.FieldValue.increment(changes.posts);
+      }
+      
+      if (changes.comments) {
+        updates['stats.totalComments'] = admin.firestore.FieldValue.increment(changes.comments);
+      }
+      
+      if (changes.posts || changes.comments) {
+        updates['stats.lastActivity'] = admin.firestore.FieldValue.serverTimestamp();
+      }
+      
+      await categoryRef.update(updates);
+    } catch (error) {
+      console.error('[FIREBASE] Error updating category stats:', error);
+      // Don't throw - this is non-critical
+    }
+  }
+
+  async logUserActivity(steamId, activityType, activityData) {
+    try {
+      const activityRef = this.userActivity.doc();
+      const timestamp = admin.firestore.FieldValue.serverTimestamp();
+      
+      const activity = {
+        steamId,
+        activityType,
+        activityData,
+        createdAt: timestamp,
+        retentionUntil: new Date(Date.now() + (30 * 24 * 60 * 60 * 1000)) // 30 days
+      };
+      
+      await activityRef.set(activity);
+    } catch (error) {
+      console.error('[FIREBASE] Error logging user activity:', error);
+      // Don't throw - this is non-critical
+    }
+  }
+
+  // CONTENT MODERATION
+  async detectToxicContent(content) {
+    // Basic toxic word detection - you can enhance this with ML APIs
+    const toxicWords = ['toxic', 'hate', 'spam', 'abuse']; // Add more words
+    const lowerContent = content.toLowerCase();
+    
+    for (const word of toxicWords) {
+      if (lowerContent.includes(word)) {
+        return {
+          isToxic: true,
+          detectedWords: [word],
+          confidence: 0.8
+        };
+      }
+    }
+    
+    return {
+      isToxic: false,
+      detectedWords: [],
+      confidence: 0
+    };
+  }
+
+  // ENHANCED WATCHLIST WITH PRICE TRACKING
+  async getWatchlist(steamId) {
+    try {
+      const snapshot = await this.marketWatchlists
+        .where('steamId', '==', steamId)
+        .orderBy('updatedAt', 'desc')
+        .get();
+      
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('[FIREBASE] Error getting watchlist:', error);
+      throw error;
+    }
+  }
+
+  async addOrUpdateWatchItem(steamId, { appid, hashName, name = null, targetPrice = null, iconUrl = null, salePriceText = null, sellPriceText = null, currentPrice = null }) {
+    try {
+      const id = `${steamId}_${appid}_${hashName}`;
+      const ref = this.marketWatchlists.doc(id);
+      
+      const watchItem = {
+        id,
+        steamId,
+        appid,
+        hashName,
+        name,
+        iconUrl,
+        targetPrice: targetPrice || null,
+        salePriceText: salePriceText || null,
+        sellPriceText: sellPriceText || null,
+        currentPrice: currentPrice || null,
+        alertsEnabled: !!targetPrice,
+        priceHistory: [],
+        lastPriceCheck: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+      
+      await ref.set(watchItem, { merge: true });
+      return id;
+    } catch (error) {
+      console.error('[FIREBASE] Error adding/updating watch item:', error);
+      throw error;
+    }
+  }
+
+  async removeWatchItem(steamId, id) {
+    try {
+      // Allow either composite id or doc id
+      const docId = id.startsWith(steamId) ? id : `${steamId}_${id}`;
+      const ref = this.marketWatchlists.doc(docId);
+      await ref.delete();
+    } catch (error) {
+      console.error('[FIREBASE] Error removing watch item:', error);
+      throw error;
+    }
+  }
+
+  async updateWatchItemPrice(steamId, itemId, newPrice) {
+    try {
+      const ref = this.marketWatchlists.doc(itemId);
+      const doc = await ref.get();
+      
+      if (!doc.exists || doc.data().steamId !== steamId) {
+        throw new Error('Watch item not found or access denied');
+      }
+      
+      const currentData = doc.data();
+      const priceHistory = currentData.priceHistory || [];
+      
+      // Add to price history (keep last 30 entries)
+      priceHistory.push({
+        price: newPrice,
+        date: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      if (priceHistory.length > 30) {
+        priceHistory.shift();
+      }
+      
+      await ref.update({
+        currentPrice: newPrice,
+        priceHistory: priceHistory,
+        lastPriceCheck: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      // Check if price alert should be triggered
+      if (currentData.alertsEnabled && currentData.targetPrice && newPrice <= currentData.targetPrice) {
+        await this.createPriceAlert({
+          ...currentData,
+          currentPrice: newPrice
+        });
+      }
+    } catch (error) {
+      console.error('[FIREBASE] Error updating watch item price:', error);
+      throw error;
+    }
+  }
 }
 
 export default new FirebaseService();
+export { admin };

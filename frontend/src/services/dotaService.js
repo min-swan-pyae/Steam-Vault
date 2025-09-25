@@ -24,7 +24,25 @@ export const dotaService = {
     
     try {
       console.log(`Fetching match history for account ${dota2Id}${startAtMatchId ? ' starting at match ' + startAtMatchId : ''} with limit ${limit}`);
-      const response = await api.get(`/api/dota2/match-history/${dota2Id}`, { params });
+      let attempts = 0;
+      let response;
+      while (attempts < 3) {
+        try {
+          response = await api.get(`/api/dota2/match-history/${dota2Id}`, { params, cacheType: 'MATCH_HISTORY' });
+          break;
+        } catch (err) {
+          const status = err?.response?.status;
+          if (status === 429) {
+            const retryAfter = parseInt(err?.response?.data?.retryAfter || err?.response?.headers?.['retry-after'] || '1', 10);
+            const waitMs = (isNaN(retryAfter) ? 1 : retryAfter) * 1000;
+            console.warn(`Rate limited (429). Waiting ${waitMs}ms before retry...`);
+            await new Promise(r => setTimeout(r, waitMs));
+            attempts++;
+            continue;
+          }
+          throw err;
+        }
+      }
       
       // Check if we got a valid array response
       if (!Array.isArray(response)) {
@@ -40,7 +58,7 @@ export const dotaService = {
       }
       
       return response;
-    } catch (error) {
+  } catch (error) {
       console.error('Error in getMatchHistory:', error.response ? error.response.data : error.message);
       // Return empty array for pagination to work properly
       return []; 

@@ -28,23 +28,56 @@ const __dirname = path.resolve();
 
 export const getMatchHistory = asyncHandler(async (req, res) => {
   let { accountId } = req.params;
+  const requestedLimit = Math.min(100, Math.max(1, parseInt(req.query.limit || '50', 10)));
   
   // Convert Steam64 ID to account ID if needed
   accountId = convertSteamIdToAccountId(accountId);
 
   // Check cache first
-  const cacheKey = `history_${accountId}`;
+  const cacheKey = `history_${accountId}_${requestedLimit}`;
   const cachedHistory = cacheService.get(CACHE_TYPES.MATCH_HISTORY, cacheKey);
   if (cachedHistory) {
     return res.json(cachedHistory);
   }
 
   try {
-    // Use OpenDota API instead of Steam API
-    const matchesResponse = await axios.get(`https://api.opendota.com/api/players/${accountId}/matches`, {
-      params: {
-        limit: 100
+    // Throttle OpenDota calls to avoid 429
+    try {
+      const lastTs = cacheService.get(CACHE_TYPES.RATE_LIMITING, 'opendota_last_ts') || 0;
+      const now = Date.now();
+      const minGap = 350; // ms
+      const wait = Math.max(0, minGap - (now - lastTs));
+      if (wait > 0) {
+        await new Promise(r => setTimeout(r, wait));
       }
+      cacheService.set(CACHE_TYPES.RATE_LIMITING, 'opendota_last_ts', Date.now(), 60);
+    } catch (e) {
+      // non-blocking
+    }
+
+    // Helper: polite retry with exponential backoff and Retry-After support
+    const fetchWithRetry = async (url, params, retries = 3, baseDelay = 500) => {
+      let attempt = 0;
+      while (attempt <= retries) {
+        try {
+          return await axios.get(url, { params, timeout: 15000 });
+        } catch (err) {
+          const status = err?.response?.status;
+          const retryAfter = parseInt(err?.response?.headers?.['retry-after'] || '0', 10);
+          const shouldRetry = status === 429 || (status >= 500 && status < 600) || err.code === 'ECONNABORTED' || err.message?.includes('timeout');
+          if (!shouldRetry || attempt === retries) {
+            throw Object.assign(err, { _rateLimited: status === 429, _retryAfter: retryAfter });
+          }
+          const delay = retryAfter > 0 ? retryAfter * 1000 : baseDelay * Math.pow(2, attempt);
+          await new Promise(r => setTimeout(r, delay));
+          attempt++;
+        }
+      }
+    };
+
+    // Use OpenDota API with retry/backoff
+    const matchesResponse = await fetchWithRetry(`https://api.opendota.com/api/players/${accountId}/matches`, {
+      limit: requestedLimit
     });
 
     const matches = matchesResponse.data.map(match => ({
@@ -65,12 +98,18 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     }));
 
     // Cache the match history
-    cacheService.set(CACHE_TYPES.MATCH_HISTORY, cacheKey, matches);
+    cacheService.set(CACHE_TYPES.MATCH_HISTORY, cacheKey, matches, 5 * 60); // 5 minutes
     
     res.json(matches);
   } catch (error) {
+    const status = error?._rateLimited ? 429 : 500;
+    const retryAfter = error?._retryAfter || undefined;
     console.error('Error fetching match history:', error.message);
-    return res.status(500).json({ message: 'Failed to fetch match history' });
+    return res.status(status).json({ 
+      message: status === 429 ? 'Rate limited by OpenDota. Please retry shortly.' : 'Failed to fetch match history',
+      error: status === 429 ? 'RATE_LIMITED' : 'INTERNAL_ERROR',
+      retryAfter
+    });
   }
 });
 

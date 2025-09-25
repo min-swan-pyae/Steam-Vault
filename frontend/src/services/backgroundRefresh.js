@@ -9,7 +9,7 @@ import api from './api.js';
 class BackgroundRefreshService {
   constructor() {
     this.refreshIntervals = new Map();
-    this.isActive = true;
+    this.isActive = false; // PERMANENTLY DISABLED to prevent price API call rate limiting
     this.refreshQueue = [];
     this.currentlyRefreshing = new Set();
     
@@ -47,9 +47,12 @@ class BackgroundRefreshService {
       }
     };
 
-    this.setupVisibilityHandling();
-    this.setupNetworkHandling();
-    this.startBackgroundRefresh();
+    // DISABLED: Background refresh to prevent price API rate limiting
+    // this.setupVisibilityHandling();
+    // this.setupNetworkHandling();
+    // this.startBackgroundRefresh();
+    
+    console.log('[BACKGROUND REFRESH] Service disabled to prevent rate limiting');
   }
 
   /**

@@ -8,6 +8,7 @@ Complete API reference for Steam Vault backend services.
 - [CS2 Endpoints](#cs2-endpoints)
 - [Dota 2 Endpoints](#dota-2-endpoints)
 - [Cache Management](#cache-management)
+ - [User Account](#user-account)
 - [Error Handling](#error-handling)
 - [Rate Limiting](#rate-limiting)
 
@@ -52,6 +53,11 @@ GET /auth/logout
 ```
 
 Destroys user session and logs out.
+
+### Email Verification Links
+Verification emails use your public backend/base URL. Configure one of:
+`BACKEND_PUBLIC_URL`, `PUBLIC_BASE_URL`, or `BASE_URL` in backend `.env`.
+The success page "Return to Steam Vault" button uses `FRONTEND_URL`.
 
 ## 🔫 CS2 Endpoints
 
@@ -381,6 +387,63 @@ POST /api/cache/warm
 ```
 
 Pre-loads frequently accessed data into cache.
+
+## 👤 User Account
+
+### Export My Data
+```http
+GET /api/users/export
+```
+Authenticated endpoint that returns a JSON export bundle of the user's data
+(profile, email connection, notifications, watchlist, price alerts, matches,
+player/weapon/map stats).
+
+Response: `application/json` attachment
+
+### Save Notification Preferences
+```http
+POST /api/users/preferences
+```
+Body:
+```json
+{
+  "preferences": {
+    "enableNotifications": true,
+    "emailNotifications": true,
+    "priceAlerts": true,
+    "forumNotifications": true,
+    "weeklyDigest": false,
+    "notificationFrequency": "instant"
+  }
+}
+```
+Upserts to `userProfiles.preferences`.
+
+## 🧪 Testing Endpoints (Development Only)
+
+### Test Notifications
+```http
+POST /api/test/notifications/{type}
+```
+Where `{type}` is one of: `price-drop`, `market-trend`, `forum-activity`, `weekly-digest`
+
+Creates and sends test notifications for development/testing purposes.
+
+### Get Test Notifications
+```http
+GET /api/test/notifications?limit=10&includeRead=true
+```
+
+### Clear Test Notifications
+```http
+DELETE /api/test/notifications
+```
+
+**Note**: Current notification implementation status:
+- ✅ **Price Alerts**: Fully implemented with email delivery
+- 🚧 **Market Trends**: Backend structure exists, automation not implemented
+- 🚧 **Forum Activity**: Backend structure exists, triggers not implemented  
+- 🚧 **Weekly Digest**: Backend structure exists, scheduling not implemented
 
 ## ❌ Error Handling
 

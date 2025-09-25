@@ -48,7 +48,8 @@ class APIResponseCache {
       }, {});
     
     const paramString = JSON.stringify(sortedParams);
-    return `${cacheType}:${endpoint}:${btoa(paramString)}`;
+    // Use encodeURIComponent for Unicode-safe encoding instead of btoa
+    return `${cacheType}:${endpoint}:${encodeURIComponent(paramString)}`;
   }
 
   /**
@@ -65,7 +66,8 @@ class APIResponseCache {
    * Get cached data
    */
   get(endpoint, params = {}, cacheType = 'PLAYER_DATA') {
-    const cacheKey = this.generateCacheKey(endpoint, params, cacheType);
+    try {
+      const cacheKey = this.generateCacheKey(endpoint, params, cacheType);
     
     // Check memory cache first (fastest)
     if (this.memoryCache.has(cacheKey)) {
@@ -105,13 +107,19 @@ class APIResponseCache {
     this.cacheStats.misses++;
     console.log(`[CACHE MISS] ${cacheKey}`);
     return null;
+    } catch (error) {
+      console.warn('[CACHE ERROR] Failed to get from cache:', error.message);
+      this.cacheStats.misses++;
+      return null;
+    }
   }
 
   /**
    * Set cached data
    */
   set(endpoint, params = {}, data, cacheType = 'PLAYER_DATA') {
-    const cacheKey = this.generateCacheKey(endpoint, params, cacheType);
+    try {
+      const cacheKey = this.generateCacheKey(endpoint, params, cacheType);
     const cacheEntry = {
       data,
       timestamp: Date.now(),
@@ -143,6 +151,10 @@ class APIResponseCache {
       if (error.name === 'QuotaExceededError') {
         this.performCacheEviction(this.getStorage(cacheType), cacheType);
       }
+    }
+    } catch (keyError) {
+      console.warn('[CACHE ERROR] Failed to generate cache key for set operation:', keyError.message);
+      // Continue without caching to not break the API request
     }
   }
 

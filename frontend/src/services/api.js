@@ -25,9 +25,14 @@ const cachedRequest = async (config, cacheType = CACHE_TYPES.PLAYER_DATA, forceR
 
   // Check cache first (unless force refresh)
   if (!forceRefresh) {
-    const cachedData = apiCache.get(url, params, cacheType);
-    if (cachedData) {
-      return Promise.resolve(cachedData);
+    try {
+      const cachedData = apiCache.get(url, params, cacheType);
+      if (cachedData) {
+        return Promise.resolve(cachedData);
+      }
+    } catch (cacheError) {
+      console.warn('[API] Cache get failed, proceeding with API request:', cacheError.message);
+      // Continue with API request if cache fails
     }
   }
 
@@ -37,7 +42,12 @@ const cachedRequest = async (config, cacheType = CACHE_TYPES.PLAYER_DATA, forceR
     
     // Cache successful responses
     if (response && typeof response === 'object') {
-      apiCache.set(url, params, response, cacheType);
+      try {
+        apiCache.set(url, params, response, cacheType);
+      } catch (cacheError) {
+        console.warn('[API] Cache set failed, but API request succeeded:', cacheError.message);
+        // Continue without caching - the response is still valid
+      }
     }
     
     return response;
@@ -130,21 +140,35 @@ enhancedAPI.raw.interceptors.response.use(
     // Handle unauthorized access
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      if (typeof window !== 'undefined' && window.location) {
+        window.location.href = '/login';
+      }
       return Promise.reject(error);
     }
 
-    // Implement retry logic for network errors and 5xx responses
-    if ((error.message.includes('network') || 
-         error.message.includes('timeout') || 
-         (error.response && error.response.status >= 500)) && 
-        originalRequest.retry < originalRequest.maxRetries) {
+    // Implement retry logic for 429 with Retry-After, network errors and 5xx responses
+    const status = error.response?.status;
+    const retryAfterHeader = error.response?.headers?.['retry-after'];
+    let retryAfterMs = 0;
+    if (retryAfterHeader) {
+      const asInt = parseInt(retryAfterHeader, 10);
+      if (!Number.isNaN(asInt)) retryAfterMs = asInt * 1000;
+    }
+
+    const isRetryable = (
+      status === 429 ||
+      error.message.includes('network') || 
+      error.message.includes('timeout') || 
+      (status && status >= 500)
+    );
+
+    if (isRetryable && originalRequest.retry < originalRequest.maxRetries) {
       
       originalRequest._retry = true;
       originalRequest.retry = (originalRequest.retry || 0) + 1;
       
-      // Exponential backoff
-      const delay = originalRequest.retryDelay * (2 ** (originalRequest.retry - 1));
+      // Respect Retry-After when present, else exponential backoff
+      const delay = retryAfterMs > 0 ? retryAfterMs : originalRequest.retryDelay * (2 ** (originalRequest.retry - 1));
       
       // Wait before retrying
       await new Promise(resolve => setTimeout(resolve, delay));

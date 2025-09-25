@@ -21,8 +21,10 @@
     "express-session": "^1.18.1",
     "firebase": "^11.10.0",
     "firebase-admin": "^13.4.0",
+    "googleapis": "^160.0.0",
     "multer": "^2.0.1",
     "node-cache": "^5.1.2",
+    "nodemailer": "^7.0.6",
     "passport": "^0.7.0",
     "passport-steam": "^1.0.18"
   }

@@ -57,6 +57,13 @@ class CacheService {
         useClones: false
       }),
       
+      // Market data (prices, searches)
+      marketData: new NodeCache({
+        stdTTL: 300,       // 5 minutes
+        checkperiod: 120,
+        useClones: false
+      }),
+      
       // API rate limiting cache
       rateLimiting: new NodeCache({ 
         stdTTL: 60,        // 1 minute
@@ -371,6 +378,7 @@ export const CACHE_TYPES = {
   META_DATA: 'metaData',
   IMAGE_DATA: 'imageData',
   CS2_DATA: 'cs2Data',
+  MARKET_DATA: 'marketData',
   RATE_LIMITING: 'rateLimiting'
 };
 

@@ -1,6 +1,7 @@
 import { Link, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useState } from 'react'
+import NotificationBell from '../components/NotificationBell'
 
 export default function RootLayout() {
   const { user, loading, login, logout } = useAuth();
@@ -32,12 +33,19 @@ export default function RootLayout() {
                   <div className="text-gray-300">Loading...</div>
                 ) : user ? (
                   <div className="flex items-center space-x-4">
+                    <NotificationBell />
                     <img
                       src={user.photos?.[0]?.value}
                       alt={user.displayName}
                       className="w-8 h-8 rounded-full"
                     />
                     <span className="text-sm font-medium">{user.displayName}</span>
+                    <Link 
+                      to="/settings"
+                      className="px-3 py-2 rounded-md text-sm font-medium bg-gray-600 hover:bg-gray-700 transition-colors"
+                    >
+                      ⚙️ Settings
+                    </Link>
                     <button
                       onClick={logout}
                       className="px-3 py-2 rounded-md text-sm font-medium bg-red-600 hover:bg-red-700 transition-colors"

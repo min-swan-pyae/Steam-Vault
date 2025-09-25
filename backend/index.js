@@ -5,12 +5,17 @@ import fs from 'fs';
 import path from 'path';
 import dotaRoutes from './routes/dotaRoutes.js';
 import cs2Routes from './routes/cs2Routes.js';
+import marketRoutes from './routes/marketRoutes.js';
 import cacheRoutes from './routes/cacheRoutes.js';
+import emailRoutes from './routes/emailRoutes.js';
+import userRoutes from './routes/userRoutes.js';
 
 console.log('Routes loaded:', {
   dotaRoutes: typeof dotaRoutes,
   cs2Routes: typeof cs2Routes,
-  cacheRoutes: typeof cacheRoutes
+  marketRoutes: typeof marketRoutes,
+  cacheRoutes: typeof cacheRoutes,
+  emailRoutes: typeof emailRoutes
 });
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import { loadHeroMap } from './utils/dotaUtils.js';
@@ -58,8 +63,16 @@ const startServer = async () => {
   await loadHeroMap();
 
 //middleware
+  const allowedOrigins = [
+    /^http:\/\/localhost:517[0-9]$/,
+    /^http:\/\/127\.0\.0\.1:517[0-9]$/
+  ];
   app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const ok = allowedOrigins.some(re => re.test(origin));
+      return callback(null, ok);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -103,8 +116,19 @@ app.use('/api/dota2', dotaRoutes);
     console.log('CS2 route middleware hit:', req.method, req.originalUrl);
     next();
   }, cs2Routes);
+  app.use('/api/market', marketRoutes);
   app.use('/api/cache', cacheRoutes);
+  app.use('/api/email', emailRoutes);
+  app.use('/api/users', userRoutes);
   app.use('/auth', authRoutes);
+  
+  // Test and dev routes for development
+  if (process.env.NODE_ENV !== 'production') {
+    const testRoutes = await import('./routes/testRoutes.js');
+    const devRoutes = await import('./routes/devRoutes.js');
+    app.use('/api/test', testRoutes.default);
+    app.use('/api/dev', devRoutes.default);
+  }
 
 app.get('/', (req, res) => {
   res.send('SteamVault backend is running');
