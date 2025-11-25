@@ -36,14 +36,17 @@ export default function Dota2Dashboard() {
     try {
       setProPlayersError(false);
       const proPlayersResponse = await dotaService.getProPlayersLive();
-      console.log('Pro players response in dashboard:', proPlayersResponse);
-      setProPlayers(proPlayersResponse.data || []);
-      setIsPublicMatchData(proPlayersResponse.isPublicMatchData || false);
-      return proPlayersResponse;
+      // Response is now the data directly (not wrapped in .data)
+      const rawData = Array.isArray(proPlayersResponse) ? proPlayersResponse : proPlayersResponse?.data || [];
+      // Filter out invalid entries (must have match_id and account_id)
+      const validPlayers = rawData.filter(player => player.match_id && player.account_id);
+      setProPlayers(validPlayers);
+      setIsPublicMatchData(proPlayersResponse?.isPublicMatchData || false);
+      return validPlayers;
     } catch (err) {
       console.error('Failed to fetch pro players:', err);
       setProPlayersError(true);
-      return { data: [], isPublicMatchData: false, isMockData: true };
+      return [];
     }
   };
 
@@ -63,8 +66,7 @@ export default function Dota2Dashboard() {
     try {
       const result = await fetchProPlayersData();
       // Optional: Show a brief success message
-      if (result && result.data && result.data.length > 0) {
-        console.log('Pro players data refreshed successfully');
+      if (result && Array.isArray(result) && result.length > 0) {
       }
     } finally {
       setProPlayersRefreshing(false);
@@ -88,49 +90,45 @@ export default function Dota2Dashboard() {
       setIsLoading(true);
       setError(null);
       try {
-        const [proPlayersResponse, metaStatsData] = await Promise.all([
+        // Fetch all data in parallel for better performance
+        const promises = [
           fetchProPlayersData(),
           dotaService.getMetaStats().catch(err => {
             console.error('Failed to fetch meta stats:', err);
             return [];
           })
-        ]);
+        ];
+
+        // Add user data fetch to parallel promises if logged in
+        if (user?.steamId) {
+          promises.push(
+            dotaService.getPlayer(user.steamId).catch(err => {
+              console.error('Failed to fetch user data:', err);
+              return null;
+            })
+          );
+        }
+
+        const results = await Promise.all(promises);
+        const [proPlayersResponse, metaStatsData, playerData] = results;
 
         setMetaStats(metaStatsData || []);
 
-        // If user is logged in, fetch their stats
-        if (user?.steamId) {
-          try {
-            // Fetch player profile data
-            const playerData = await dotaService.getPlayer(user.steamId);
-            setPlayerStats(playerData);
+        // Process user data if available
+        if (playerData) {
+          setPlayerStats(playerData);
 
-            // Process matches data
-            let processedMatches = [];
-            if (playerData?.matches?.length > 0) {
-              processedMatches = playerData.matches;
-            } else if (playerData?.recent_matches?.length > 0) {
-              processedMatches = playerData.recent_matches;
-            } else {
-              const matchHistory = await dotaService.getMatchHistory(user.steamId);
-              processedMatches = matchHistory || [];
-            }
-
-            // Format matches and set state
-            const formattedMatches = processedMatches.map(match => ({
-              ...match,
-              player_won: match.player_won !== undefined ? match.player_won :
-                (match.player_slot < 128 ? match.radiant_win : !match.radiant_win),
-              duration_formatted: match.duration_formatted ||
-                (match.duration ? `${Math.floor(match.duration / 60)}:${(match.duration % 60).toString().padStart(2, '0')}` : '0:00')
-            }));
-
-            setRecentMatches(formattedMatches.slice(0, 6));
-          } catch (err) {
-            console.error('Failed to fetch user data:', err);
-            setPlayerStats(null);
-            setRecentMatches([]);
-          }
+          // Use recent_matches from player profile (now includes hero_name from backend fix)
+          // This is faster than making a separate API call to getMatchHistory
+          const processedMatches = playerData?.recent_matches || [];
+          const formattedMatches = processedMatches.map(match => ({
+            ...match,
+            player_won: match.player_won !== undefined ? match.player_won :
+              (match.player_slot < 128 ? match.radiant_win : !match.radiant_win),
+            duration_formatted: match.duration_formatted ||
+              (match.duration ? `${Math.floor(match.duration / 60)}:${(match.duration % 60).toString().padStart(2, '0')}` : '0:00')
+          }));
+          setRecentMatches(formattedMatches.slice(0, 6));
         }
       } catch (err) {
         console.error('Error fetching dashboard data:', err);

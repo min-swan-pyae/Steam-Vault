@@ -45,7 +45,7 @@ export default function MatchDetails() {
     fetchMatchDetails();
   }, [matchId, location.search]);
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <LoadingSpinner overlay={true} message="Loading match details..." />;
   if (error) return <ErrorMessage message={error} />;
   if (!match) return <ErrorMessage message="Match not found" />;
 

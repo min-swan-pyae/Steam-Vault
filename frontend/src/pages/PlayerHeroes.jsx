@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { dotaService } from '../services/dotaService';
 import { heroNameMap } from '../config/heroConfig';
 import NotAuthenticated from '../components/NotAuthenticated';
 import { HeroImage } from '../components/HeroImage';
+import PageLoader from '../components/ui/PageLoader';
+import PageError from '../components/ui/PageError';
 
 export default function PlayerHeroes() {
   const { user } = useSelector((state) => state.auth);
   const { steamId } = useParams();
+  const navigate = useNavigate();
   const [player, setPlayer] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -44,9 +47,20 @@ export default function PlayerHeroes() {
         setIsLoading(true);
         // Use the converted ID for the API call
         const playerStats = await dotaService.getHeroPerformance(steam64Id || steamId);
-        setPlayer({ most_played_heroes: playerStats });
+        
+        
+        if (playerStats && playerStats.length > 0) {
+        }
+        
+        // The API now returns an array directly
+        if (Array.isArray(playerStats) && playerStats.length > 0) {
+          setPlayer({ most_played_heroes: playerStats });
+        } else {
+          console.warn('⚠️ No hero data returned or empty array');
+          setPlayer({ most_played_heroes: [] });
+        }
       } catch (err) {
-        console.error('Error fetching player stats:', err);
+        console.error('❌ Error fetching player stats:', err);
         setError('Failed to load player data. Please try again later.');
       } finally {
         setIsLoading(false);
@@ -130,36 +144,11 @@ export default function PlayerHeroes() {
   };
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white p-4 md:p-6 lg:p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="animate-pulse">
-            <div className="h-32 bg-gray-800 rounded-lg mb-8"></div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-4">
-              {[...Array(24)].map((_, i) => (
-                <div key={i} className="h-48 bg-gray-800 rounded-lg"></div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <PageLoader message="Loading hero statistics..." />;
   }
 
   if (error) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white p-4 md:p-6 lg:p-8">
-        <div className="max-w-7xl mx-auto text-center">
-          <div className="bg-red-900/50 border border-red-500 rounded-lg p-6 md:p-8 mb-8">
-            <h2 className="text-2xl font-bold mb-4">Error</h2>
-            <p className="text-red-400">{error}</p>
-          </div>
-          <Link to={`/dota2/players/${steamId}`} className="text-blue-400 hover:text-blue-300">
-            Back to Player Profile
-          </Link>
-        </div>
-      </div>
-    );
+    return <PageError message={error} onRetry={() => window.location.reload()} />;
   }
 
   const sortedHeroes = getSortedHeroes();
@@ -169,23 +158,26 @@ export default function PlayerHeroes() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header with player info */}
-        <div className="mb-8">
-          <Link to={`/dota2/players/${steamId}`} className="text-blue-400 hover:text-blue-300 mb-4 inline-block">
-            &larr; Back to Player Profile
-          </Link>
-          <h1 className="text-2xl md:text-3xl font-bold mb-2">{player?.most_played_heroes[0].personaname || 'Unknown Player'}'s Heroes</h1>
-          <p className="text-gray-400">Total Heroes Played: {player?.most_played_heroes?.length || 0}</p>
-        </div>
+          <div className="mb-8">
+            <button
+              type="button"
+              onClick={() => navigate(`/dota2/players/${steamId}`)}
+              className="text-blue-400 hover:text-blue-300 mb-4 inline-block"
+            >
+              &larr; Back to Player Profile
+            </button>
+            <h1 className="text-2xl md:text-3xl font-bold mb-2">{player?.most_played_heroes?.[0]?.personaname || 'Player'}'s Heroes</h1>
+            <p className="text-gray-400">Total Heroes Played: {player?.most_played_heroes?.length || 0}</p>
+          </div>
 
-        <div className="bg-gray-800 rounded-lg p-4 md:p-6 mb-8">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div className="w-full lg:w-1/3">
-              <input
-                type="text"
-                placeholder="Search heroes..."
-                value={searchTerm}
-                onChange={(e) => {
+          <div className="bg-gray-800 rounded-lg p-4 md:p-6 mb-8">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="w-full lg:w-1/3">
+                <input
+            type="text"
+            placeholder="Search heroes..."
+            value={searchTerm}
+            onChange={(e) => {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
@@ -217,7 +209,7 @@ export default function PlayerHeroes() {
 
         {/* Heroes Grid */}
         {player?.most_played_heroes && player.most_played_heroes.length > 0 ? (
-          <>{console.log(JSON.stringify(player.most_played_heroes))}
+          <>
             <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 md:gap-4 mb-8">
               {currentHeroes.map((hero) => (
                 <div key={hero.hero_id} className="bg-gray-700 rounded-lg p-3 md:p-4 hover:bg-gray-600 transition-colors">
@@ -251,14 +243,6 @@ export default function PlayerHeroes() {
                       <div className="flex justify-between text-[11px] md:text-xs mt-2 text-yellow-500">
                         <span>Last Match:</span>
                         <span className="text-right">{hero.last_played?formatDate(hero.last_played):"Unavailable"}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] md:text-xs mt-1 text-blue-400">
-                        <span>Highest GPM:</span>
-                        <span>{hero.highest_gpm || 0}</span>
-                      </div>
-                      <div className="flex justify-between text-[11px] md:text-xs mt-1 text-purple-400">
-                        <span>Highest XPM:</span>
-                        <span>{hero.highest_xpm || 0}</span>
                       </div>
                       {hero.with_games > 0 && (
                         <div className="flex justify-between text-[11px] md:text-xs mt-1 text-green-500">

@@ -9,16 +9,14 @@ import marketRoutes from './routes/marketRoutes.js';
 import cacheRoutes from './routes/cacheRoutes.js';
 import emailRoutes from './routes/emailRoutes.js';
 import userRoutes from './routes/userRoutes.js';
-
-console.log('Routes loaded:', {
-  dotaRoutes: typeof dotaRoutes,
-  cs2Routes: typeof cs2Routes,
-  marketRoutes: typeof marketRoutes,
-  cacheRoutes: typeof cacheRoutes,
-  emailRoutes: typeof emailRoutes
-});
+import forumRoutes from './routes/forumRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import firebaseService from './services/firebaseService.js';
+// Market trends & weekly digest removed
+import sseRoutes from './routes/sseRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
-import { loadHeroMap } from './utils/dotaUtils.js';
+import { loadHeroMap, loadItemMap } from './utils/dotaUtils.js';
+import { preWarmHeroImageCache } from './controllers/imageController.js';
 import session from 'express-session';
 import passport from './config/passport.js';
 import authRoutes from './routes/auth.js';
@@ -30,11 +28,9 @@ if (result.error) {
   
   // Try to load from absolute path
   const envPath = path.resolve(process.cwd(), '.env');
-  console.log('Trying to load .env from:', envPath);
   
   try {
     const envContent = fs.readFileSync(envPath, 'utf8');
-    console.log('Found .env file with content length:', envContent.length);
     
     // Manually parse and set environment variables
     envContent.split('\n').forEach(line => {
@@ -49,18 +45,19 @@ if (result.error) {
 }
 
 // Display available environment variables for debugging
-// console.log('Environment variables loaded:');
-// console.log('PORT:', process.env.PORT);
-// console.log('STEAM_API_KEY exists:', !!process.env.STEAM_API_KEY);
-// console.log('STEAM_API_KEY length:', process.env.STEAM_API_KEY?.length);
-// console.log('SESSION_SECRET exists:', !!process.env.SESSION_SECRET);
-// console.log('BASE_URL:', process.env.BASE_URL);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   await loadHeroMap();
+  await loadItemMap();
+  console.log('✅ Hero and Item maps loaded successfully');
+  
+  // Pre-warm hero image cache for instant first load
+  preWarmHeroImageCache().catch(err => {
+    console.error('⚠️ Image cache pre-warming failed (non-critical):', err.message);
+  });
 
 //middleware
   const allowedOrigins = [
@@ -113,21 +110,29 @@ app.use(express.urlencoded({ extended: true, limit: '300mb' }));
 
 app.use('/api/dota2', dotaRoutes);
   app.use('/api/cs2', (req, res, next) => {
-    console.log('CS2 route middleware hit:', req.method, req.originalUrl);
     next();
   }, cs2Routes);
   app.use('/api/market', marketRoutes);
   app.use('/api/cache', cacheRoutes);
   app.use('/api/email', emailRoutes);
   app.use('/api/users', userRoutes);
+  app.use('/api/forum', (req, res, next) => {
+    next();
+  }, forumRoutes);
+  app.get('/api/forum/_ping', (req, res) => res.json({ ok: true }));
+  app.use('/api/notifications', notificationRoutes);
+  // removed analyticsRoutes mount
+  app.use('/api/notifications', sseRoutes); // /api/notifications/stream
   app.use('/auth', authRoutes);
   
   // Test and dev routes for development
   if (process.env.NODE_ENV !== 'production') {
     const testRoutes = await import('./routes/testRoutes.js');
     const devRoutes = await import('./routes/devRoutes.js');
+    const moderationTestRoutes = await import('./routes/moderationTestRoutes.js');
     app.use('/api/test', testRoutes.default);
     app.use('/api/dev', devRoutes.default);
+    app.use('/api/test/moderation', moderationTestRoutes.default);
   }
 
 app.get('/', (req, res) => {
@@ -139,6 +144,14 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`✅ Backend running at http://localhost:${PORT}`);
+
+  // Start price alert scheduler (fetches prices + checks alerts)
+  if (process.env.ENABLE_JOBS !== 'false') {
+    import('./services/priceAlertScheduler.js').then(module => {
+      const scheduler = module.default;
+      scheduler.start();
+    }).catch(e => console.error('[SCHEDULER] Failed to start:', e));
+  }
 });
 };
 

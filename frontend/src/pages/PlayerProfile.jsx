@@ -36,7 +36,11 @@ export default function PlayerProfile() {
     setError(null); // Reset error state when steamId changes
     
     if (!steamId || isNaN(Number(steamId))) {
-      setError("Cannot access the user's steam id. This user profile is private or invalid steam id. Please use a valid steam id or dota2 account id.");
+      setError({
+        type: 'invalid',
+        title: 'Invalid Steam ID',
+        message: "Cannot access the user's steam id. This user profile is private or invalid steam id. Please use a valid steam id or dota2 account id."
+      });
       setIsLoading(false);
       return;
     }
@@ -52,16 +56,13 @@ export default function PlayerProfile() {
         setHasMoreMatches(true);
         
         try {
-          console.log('Fetching player data for:', steamId);
           const playerStats = await dotaService.getPlayer(steamId);
           setPlayer(playerStats);
-          console.log('Player data fetched:', playerStats);
           
           // Directly fetch match history using OpenDota API
           try {
             const matchHistory = await dotaService.getMatchHistory(steamId);
             if (Array.isArray(matchHistory) && matchHistory.length > 0) {
-              console.log('Received match history from API:', matchHistory.length);
               setRecentMatches(matchHistory);
               setVisibleMatches(Math.min(20, matchHistory.length)); // Show 10 initially
               setHasMoreMatches(matchHistory.length >= 100); // Check if we got full 100 matches
@@ -81,11 +82,44 @@ export default function PlayerProfile() {
           
         } catch (playerErr) {
           console.error('Error fetching player stats:', playerErr);
-          setError('Failed to load player data. Please try again later.');
+          const status = playerErr?.response?.status;
+          const serverMsg = playerErr?.response?.data?.message;
+          const errorCode = playerErr?.response?.data?.error;
+
+          if (errorCode === 'NO_DOTA_DATA') {
+            setError({
+              type: 'no_data',
+              title: 'No Public Dota Data',
+              message: serverMsg || 'This Steam account has no public Dota 2 matches yet or match data is not shared.'
+            });
+          } else if (status === 404) {
+            setError({
+              type: 'not_found',
+              title: 'Player Not Found',
+              message: serverMsg || 'We could not find a player for that ID. Please verify the number or try searching by vanity URL.'
+            });
+          } else if (status === 403) {
+            setError({
+              type: 'private',
+              title: 'This player profile is private!',
+              message: serverMsg || 'Ask the player to make their Dota profile public or provide match sharing permissions.'
+            });
+          } else {
+            setError({
+              type: 'generic',
+              title: 'Failed to load player data',
+              message: serverMsg || 'Please try again later.'
+            });
+          }
+          return;
         }
       } catch (err) {
         console.error('Error in fetchPlayerData:', err);
-        setError('Failed to load player data. Please try again later.');
+        setError({
+          type: 'generic',
+          title: 'Failed to load player data',
+          message: 'Please try again later.'
+        });
       } finally {
         setIsLoading(false);
       }
@@ -96,9 +130,7 @@ export default function PlayerProfile() {
     }
   }, [steamId]);
 
-  useEffect(() => {
-    console.log(`Current state - total matches: ${recentMatches.length}, visible: ${visibleMatches}, has more: ${hasMoreMatches}`);
-  }, [recentMatches.length, visibleMatches, hasMoreMatches]);
+
 
   // Handle player search
   const handleSearch = (e) => {
@@ -110,38 +142,25 @@ export default function PlayerProfile() {
 
   if (isLoading) {
     return (
-      <LoadingSpinner/>
+      <LoadingSpinner overlay={true} message="Loading player profile..." />
     );
   }
 
   if (error) {
+    const errorTitle = typeof error === 'string'
+      ? 'User Not Found!'
+      : error.title || (error.type === 'private' ? 'This player profile is private!' : 'User Not Found!');
+    const errorMessage = typeof error === 'string' ? error : error.message;
+
     return (
       <div className="min-h-screen bg-gray-900 text-white p-8">
         <div className="max-w-7xl mx-auto text-center">
           <div className="bg-red-900/50 border border-red-500 rounded-lg p-8 mb-8">
-            <h2 className="text-2xl font-bold mb-4">User Not Found!</h2>
-            <p className="text-red-400">{error}</p>
+            <h2 className="text-2xl font-bold mb-4">{errorTitle}</h2>
+            <p className="text-red-400">{errorMessage}</p>
             <button className='mt-3' onClick={() => {
               window.location.reload();
             }}>Try again</button>
-          </div>
-          <PlayerSearch 
-            searchQuery={searchQuery} 
-            setSearchQuery={setSearchQuery} 
-            handleSearch={handleSearch} 
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (player && (player.total_matches === 0 || player.match_count === 0)) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white p-8">
-        <div className="max-w-7xl mx-auto text-center">
-          <div className="bg-red-900/50 border border-red-500 rounded-lg p-8 mb-8">
-            <h2 className="text-2xl font-bold mb-4">This player profile is private!</h2>
-            
           </div>
           <PlayerSearch 
             searchQuery={searchQuery} 
@@ -169,6 +188,15 @@ export default function PlayerProfile() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8">
       <div className="max-w-7xl mx-auto">
+        {/* Back Button */}
+        <button
+          type="button"
+          onClick={() => navigate('/dota2')}
+          className="text-blue-400 hover:text-blue-300 mb-4 inline-block"
+        >
+          &larr; Back to Dashboard
+        </button>
+
         {/* Search Bar */}
         <PlayerSearch 
           searchQuery={searchQuery} 
@@ -237,11 +265,17 @@ export default function PlayerProfile() {
         {player?.records && (
           <div className="bg-gray-800 rounded-lg p-8 mb-8">
             <h2 className="text-2xl font-bold mb-6">Performance Records in Last 1000 matches.</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8 justify-center">
               {player.records.max_kills.value > 0 && (
                 <div className="bg-gray-700 rounded-lg p-4">
                   <h3 className="text-sm text-gray-400">Most Kills</h3>
                   <p className="text-2xl font-bold">{player.records.max_kills.value}</p>
+                </div>
+              )}
+              {player.records.max_kills.value > 0 && (
+                <div className="bg-gray-700 rounded-lg p-4">
+                  <h3 className="text-sm text-gray-400">Most Deaths</h3>
+                  <p className="text-2xl font-bold">{player.records.max_deaths.value}</p>
                 </div>
               )}
               {player.records.max_assists.value > 0 && (
@@ -289,7 +323,7 @@ export default function PlayerProfile() {
                              {heroNameMap[hero.hero_id] ? 
                                heroNameMap[hero.hero_id]
                                  .split('_')
-                                 .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                                 .map((word, idx) => word.charAt(0).toUpperCase() + word.slice(1))
                                  .join(' ') : 
                                `Hero ${hero.hero_id}`}
                            </p>
@@ -335,11 +369,11 @@ export default function PlayerProfile() {
             <div className="space-y-4">
               {recentMatches.slice(0, visibleMatches).map((match) => (
                 <Link
+                  key={match.match_id}
                   to={`/dota2/match/${match.match_id}`}
                   className="block mb-4"
                 >
                 <div
-                  key={match.match_id}
                   className="bg-gray-700 p-4 rounded-lg shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-7 gap-4 items-center"
                 >
                 

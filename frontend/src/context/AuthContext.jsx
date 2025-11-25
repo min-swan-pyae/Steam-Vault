@@ -17,13 +17,12 @@ const logoutUser = async () => {
   }
 };
 
+// Store checkUser function for external use
+let globalCheckUser = null;
+
 export function AuthProvider({ children }) {
   const dispatch = useDispatch();
   const { user, loading } = useSelector((state) => state.auth);
-
-  useEffect(() => {
-    checkUser();
-  }, [dispatch]);
 
   const checkUser = async () => {
     dispatch(setLoading(true));
@@ -70,6 +69,15 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // Store for external use
+  useEffect(() => {
+    globalCheckUser = checkUser;
+  }, [dispatch]);
+
+  useEffect(() => {
+    checkUser();
+  }, [dispatch]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -95,12 +103,19 @@ function useAuth() {
     dispatch(clearUser());
   };
 
+  const refreshAuth = () => {
+    if (globalCheckUser) {
+      globalCheckUser();
+    }
+  };
+
   return {
     user,
     loading,
     error,
     login,
     logout,
+    refreshAuth,
     isAuthenticated: !!user
   };
 }

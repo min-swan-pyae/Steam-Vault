@@ -7,10 +7,8 @@ export const marketApi = {
     api.get('/api/market/trending', { params: { appid, count }, cacheType: 'META_DATA' }),
 
   search: ({ appid = DEFAULT_APPID, q = '', start = 0, count = 20, filters = {} } = {}) => {
-    console.log('[MARKET API] Search request:', { appid, q, start, count, filters });
     return api.get('/api/market/search', { params: { appid, q, start, count, ...filters }, cacheType: 'META_DATA' })
       .then(response => {
-        console.log('[MARKET API] Search response:', response);
         return response;
       })
       .catch(error => {
@@ -21,7 +19,6 @@ export const marketApi = {
 
   // Paginated search with proper start/pageSize support
   searchBulk: ({ appid = DEFAULT_APPID, q = '', start = 0, pageSize = 10, filters = {}, sortBy = 'popularity', minPrice, maxPrice, bustCache = false } = {}) => {
-    console.log('[MARKET API] Bulk search request:', { appid, q, start, pageSize, filters, sortBy, minPrice, maxPrice });
     const params = { appid, q, start, pageSize, sortBy, ...filters };
     if (minPrice) params.minPrice = minPrice;
     if (maxPrice) params.maxPrice = maxPrice;
@@ -32,12 +29,23 @@ export const marketApi = {
     
     return api.get('/api/market/search/bulk', { params, ...cacheOptions })
       .then(response => {
-        console.log('[MARKET API] Bulk search response: got', response.results?.length || 0, 'items for page', Math.floor(start / pageSize) + 1);
-        return response;
+        // Handle case where response might be undefined or malformed
+        if (!response || typeof response !== 'object') {
+          console.error('[MARKET API] Invalid response format:', response);
+          return { results: [], total: 0, start: 0, error: 'Invalid response format' };
+        }
+        // Ensure response has required structure
+        return {
+          results: response.results || [],
+          total: response.total || 0,
+          start: response.start || start,
+          ...response
+        };
       })
       .catch(error => {
         console.error('[MARKET API] Bulk search error:', error);
-        throw error;
+        // Return safe fallback instead of throwing
+        return { results: [], total: 0, start: 0, error: error.message || 'Search failed' };
       });
   },
 

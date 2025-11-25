@@ -52,7 +52,6 @@ class BackgroundRefreshService {
     // this.setupNetworkHandling();
     // this.startBackgroundRefresh();
     
-    console.log('[BACKGROUND REFRESH] Service disabled to prevent rate limiting');
   }
 
   /**
@@ -63,7 +62,6 @@ class BackgroundRefreshService {
       this.scheduleRefresh(cacheType);
     });
 
-    console.log('[BACKGROUND REFRESH] Service started');
   }
 
   /**
@@ -87,7 +85,6 @@ class BackgroundRefreshService {
    */
   async refreshCacheType(cacheType) {
     if (this.currentlyRefreshing.has(cacheType)) {
-      console.log(`[BACKGROUND REFRESH] ${cacheType} already refreshing, skipping`);
       return;
     }
 
@@ -95,7 +92,6 @@ class BackgroundRefreshService {
 
     try {
       const entries = this.getCachedEntries(cacheType);
-      console.log(`[BACKGROUND REFRESH] Refreshing ${entries.length} entries for ${cacheType}`);
 
       // Process entries in batches to avoid overwhelming the server
       const batchSize = this.getBatchSize(cacheType);
@@ -108,7 +104,6 @@ class BackgroundRefreshService {
         await this.delay(500);
       }
 
-      console.log(`[BACKGROUND REFRESH] Completed refresh for ${cacheType}`);
     } catch (error) {
       console.error(`[BACKGROUND REFRESH] Error refreshing ${cacheType}:`, error);
     } finally {
@@ -233,7 +228,6 @@ class BackgroundRefreshService {
       });
 
       if (urgentEntries.length > 0) {
-        console.log(`[SMART REFRESH] Found ${urgentEntries.length} urgent entries for ${cacheType}`);
         this.processBatch(urgentEntries.slice(0, 3), cacheType); // Limit to 3 urgent items
       }
     });
@@ -259,13 +253,11 @@ class BackgroundRefreshService {
    */
   setupNetworkHandling() {
     window.addEventListener('online', () => {
-      console.log('[BACKGROUND REFRESH] Network restored, resuming refresh');
       this.resume();
       setTimeout(() => this.smartRefresh(), 2000);
     });
 
     window.addEventListener('offline', () => {
-      console.log('[BACKGROUND REFRESH] Network lost, pausing refresh');
       this.pause();
     });
   }
@@ -275,7 +267,6 @@ class BackgroundRefreshService {
    */
   pause() {
     this.isActive = false;
-    console.log('[BACKGROUND REFRESH] Service paused');
   }
 
   /**
@@ -283,7 +274,6 @@ class BackgroundRefreshService {
    */
   resume() {
     this.isActive = true;
-    console.log('[BACKGROUND REFRESH] Service resumed');
   }
 
   /**
@@ -298,7 +288,6 @@ class BackgroundRefreshService {
     }
     
     this.refreshIntervals.clear();
-    console.log('[BACKGROUND REFRESH] Service stopped');
   }
 
   /**

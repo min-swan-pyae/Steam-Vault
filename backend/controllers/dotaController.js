@@ -126,12 +126,12 @@ export const getMatchDetail = asyncHandler(async (req, res) => {
   try {
     
     const apiKey = getSteamApiKey();
-    console.log('DEBUG - Attempting to fetch match details for match_id:', match_id);
+    // console.log('DEBUG - Attempting to fetch match details for match_id:', match_id);
     try {
       const matchRes = await steamService.openDotaApi.get(`/matches/${match_id}`, { timeout: 16000 });
 
       const matchData = matchRes.data;
-      console.log('DEBUG - Match Data', matchData);
+      // console.log('DEBUG - Match Data', matchData);
       if (!matchData) {
         throw new Error('No match data found');
       }

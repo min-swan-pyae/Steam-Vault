@@ -210,7 +210,6 @@ export const searchMarket = asyncHandler(async (req, res) => {
     souvenir: req.query.souvenir || undefined
   };
 
-  console.log(`[MARKET CONTROLLER] Search request:`, { appid, q, start, count, filters });
 
   const result = await marketService.searchItems({ appid, query: q, start, count, filters });
   // Always return 200 with empty results to make UI simple
@@ -247,10 +246,6 @@ export const searchMarketBulk = asyncHandler(async (req, res) => {
     stattrak: req.query.stattrak || undefined,
     souvenir: req.query.souvenir || undefined
   };
-
-  console.log(`[MARKET CONTROLLER] Paginated search request:`, { 
-    appid, q, start, pageSize, filters, sortBy, minPrice, maxPrice 
-  });
 
   const result = await marketService.searchItemsBulk({ 
     appid, 
@@ -325,22 +320,66 @@ export const getWatchlist = asyncHandler(async (req, res) => {
 export const upsertWatchItem = asyncHandler(async (req, res) => {
   const { steamId } = req.params;
   const { appid, hashName, name, targetPrice, iconUrl, salePriceText, sellPriceText, currentPrice } = req.body || {};
+  
   if (!appid || !hashName) {
     return res.status(400).json({ message: 'appid and hashName are required' });
   }
+  
+  // Validate targetPrice
+  const parsedTargetPrice = parseFloat(targetPrice);
+  if (!targetPrice || isNaN(parsedTargetPrice) || parsedTargetPrice <= 0) {
+    return res.status(400).json({ message: 'targetPrice is required and must be greater than 0' });
+  }
+  
+  // Check if item already exists (updating is allowed)
+  // Document ID format: ${steamId}_${appid}_${hashName}
+  const existingDoc = await firebaseService.marketWatchlists
+    .doc(`${steamId}_${appid}_${hashName}`)
+    .get();
+  
+  // If adding new item, check the 30-item limit
+  if (!existingDoc.exists) {
+    const userWatchlist = await firebaseService.marketWatchlists
+      .where('steamId', '==', steamId)
+      .get();
+    
+    if (userWatchlist.size >= 30) {
+      return res.status(400).json({ 
+        message: 'Watchlist limit reached. Maximum 30 items per user.',
+        limit: 30,
+        current: userWatchlist.size
+      });
+    }
+  }
+  
+  // Parse currentPrice properly from salePriceText if not provided
+  let parsedCurrentPrice = currentPrice;
+  if (!parsedCurrentPrice && salePriceText) {
+    // Extract number from "$112.43" format
+    const match = salePriceText.match(/\$?([0-9,]+\.?[0-9]*)/);
+    if (match) {
+      parsedCurrentPrice = parseFloat(match[1].replace(/,/g, ''));
+    }
+  }
+  if (!parsedCurrentPrice || isNaN(parsedCurrentPrice)) {
+    parsedCurrentPrice = parsedTargetPrice; // Fallback to target price
+  }
+  
   const item = { 
     appid, 
     hashName, 
-    name, 
-    targetPrice: targetPrice ?? null, 
+    name: name || hashName, // Use hashName if name not provided
+    targetPrice: parsedTargetPrice, 
+    currentPrice: parsedCurrentPrice,
     iconUrl: iconUrl ?? null,
-    // Store the same price data from marketplace search
     salePriceText: salePriceText ?? null,
     sellPriceText: sellPriceText ?? null,
-    currentPrice: currentPrice ?? null
+    alertsEnabled: true, // Enable alerts by default
+    priceHistory: existingDoc.exists ? existingDoc.data().priceHistory || [] : [] // Preserve existing history
   };
+  
   await firebaseService.addOrUpdateWatchItem(steamId, item);
-  res.json({ success: true });
+  res.json({ success: true, item });
 });
 
 // DELETE /api/market/watchlist/:steamId/:id

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { getApiBaseUrl } from '../utils/helpers';
 import LoadingSpinner from './LoadingSpinner';
 
 const EmailConnection = () => {
@@ -20,8 +21,8 @@ const EmailConnection = () => {
 
     try {
       setLoading(true);
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-  const response = await fetch(`${API_BASE}/api/email/status`, {
+      const API_BASE = getApiBaseUrl();
+      const response = await fetch(`${API_BASE}/api/email/status`, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -58,8 +59,8 @@ const EmailConnection = () => {
       setLoading(true);
       setMessage({ text: '', type: '' });
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-  const response = await fetch(`${API_BASE}/api/email/connect-email`, {
+      const API_BASE = getApiBaseUrl();
+      const response = await fetch(`${API_BASE}/api/email/connect-email`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -94,8 +95,8 @@ const EmailConnection = () => {
       setLoading(true);
       setMessage({ text: '', type: '' });
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-  const response = await fetch(`${API_BASE}/api/email/disconnect`, {
+      const API_BASE = getApiBaseUrl();
+      const response = await fetch(`${API_BASE}/api/email/disconnect`, {
         method: 'DELETE',
         credentials: 'include',
         headers: {
@@ -130,7 +131,7 @@ const EmailConnection = () => {
   if (loading && !emailStatus.hasEmail) {
     return (
       <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-        <LoadingSpinner />
+        <LoadingSpinner message="Loading email settings..." />
       </div>
     );
   }
@@ -175,9 +176,9 @@ const EmailConnection = () => {
               <p className="text-green-200 text-sm font-medium mb-2">🎉 You'll receive notifications for:</p>
               <ul className="text-green-200 text-sm space-y-1 list-disc list-inside">
                 <li>💰 Steam marketplace price drops</li>
-                <li>📈 Market trend alerts</li>
                 <li>💬 Forum activity updates</li>
-                <li>🏆 Achievement notifications</li>
+                <li>📊 System announcements</li>
+                <li>⚡ Real-time alerts</li>
               </ul>
             </div>
           )}

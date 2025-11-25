@@ -25,7 +25,6 @@ class FirebaseDataService {
    */
   async getCS2PlayerStats(steamId) {
     try {
-      console.log(`[CS2 API] Fetching player stats for: ${steamId}`);
       
       const response = await fetch(`/api/cs2/player/${steamId}/stats`, {
         method: 'GET',
@@ -42,7 +41,6 @@ class FirebaseDataService {
       }
 
       const stats = await response.json();
-      console.log(`[CS2 API] Stats fetched successfully for ${steamId}:`, stats);
       return stats;
     } catch (error) {
       console.error(`[CS2 API] Error in getCS2PlayerStats:`, error);
@@ -59,7 +57,6 @@ class FirebaseDataService {
    */
   async getCS2PlayerMatches(steamId, limit = 20, offset = 0) {
     try {
-      console.log(`[CS2 API] Fetching matches for: ${steamId}`);
       
       const response = await fetch(`/api/cs2/player/${steamId}/matches?limit=${limit}&offset=${offset}`, {
         method: 'GET',
@@ -76,7 +73,6 @@ class FirebaseDataService {
       }
 
       const matches = await response.json();
-      console.log(`[CS2 API] Matches fetched successfully for ${steamId}:`, matches);
       return matches;
     } catch (error) {
       console.error(`[CS2 API] Error in getCS2PlayerMatches:`, error);
@@ -91,7 +87,6 @@ class FirebaseDataService {
    */
   async getCS2PlayerWeapons(steamId) {
     try {
-      console.log(`[CS2 API] Fetching weapons for: ${steamId}`);
       
       const response = await fetch(`/api/cs2/player/${steamId}/weapons`, {
         method: 'GET',
@@ -108,7 +103,6 @@ class FirebaseDataService {
       }
 
       const weapons = await response.json();
-      console.log(`[CS2 API] Weapons fetched successfully for ${steamId}:`, weapons);
       return weapons;
     } catch (error) {
       console.error(`[CS2 API] Error in getCS2PlayerWeapons:`, error);
@@ -123,7 +117,6 @@ class FirebaseDataService {
    */
   async getCS2PlayerMaps(steamId) {
     try {
-      console.log(`[CS2 API] Fetching maps for: ${steamId}`);
       
       const response = await fetch(`/api/cs2/player/${steamId}/maps`, {
         method: 'GET',
@@ -140,7 +133,6 @@ class FirebaseDataService {
       }
 
       const maps = await response.json();
-      console.log(`[CS2 API] Maps fetched successfully for ${steamId}:`, maps);
       return maps;
     } catch (error) {
       console.error(`[CS2 API] Error in getCS2PlayerMaps:`, error);
@@ -154,11 +146,10 @@ class FirebaseDataService {
    * @param {string} sortBy - Sort criteria
    * @returns {Promise<Array>} Leaderboard data
    */
-  async getCS2Leaderboard(limit = 10, sortBy = 'kdRatio') {
+  async getCS2Leaderboard(limit = 10, sortBy = 'kdRatio', options = {}) {
     try {
-      console.log(`[CS2 API] Fetching leaderboard (${sortBy})`);
-      
-      const response = await fetch(`/api/cs2/leaderboard?limit=${limit}&sortBy=${sortBy}`, {
+      const refresh = options.refresh ? '&refresh=1' : '';
+      const response = await fetch(`/api/cs2/leaderboard?limit=${limit}&sortBy=${sortBy}${refresh}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -173,7 +164,6 @@ class FirebaseDataService {
       }
 
       const leaderboard = await response.json();
-      console.log(`[CS2 API] Leaderboard fetched successfully:`, leaderboard);
       return leaderboard;
     } catch (error) {
       console.error(`[CS2 API] Error in getCS2Leaderboard:`, error);
@@ -187,11 +177,10 @@ class FirebaseDataService {
    * @param {number} limit - Number of results to return
    * @returns {Promise<Array>} Search results
    */
-  async searchCS2Players(query, limit = 10) {
+  async searchCS2Players(query, limit = 10, options = {}) {
     try {
-      console.log(`[CS2 API] Searching players: ${query}`);
-      
-      const response = await fetch(`/api/cs2/search?query=${encodeURIComponent(query)}&limit=${limit}`, {
+      const refresh = options.refresh ? '&refresh=1' : '';
+      const response = await fetch(`/api/cs2/search?query=${encodeURIComponent(query)}&limit=${limit}${refresh}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -206,7 +195,6 @@ class FirebaseDataService {
       }
 
       const results = await response.json();
-      console.log(`[CS2 API] Search results:`, results);
       return results;
     } catch (error) {
       console.error(`[CS2 API] Error in searchCS2Players:`, error);
@@ -221,7 +209,6 @@ class FirebaseDataService {
    */
   async getCS2RecentActivity(limit = 20) {
     try {
-      console.log(`[CS2 API] Fetching recent activity`);
       
       const response = await fetch(`/api/cs2/activity?limit=${limit}`, {
         method: 'GET',
@@ -238,7 +225,6 @@ class FirebaseDataService {
       }
 
       const activity = await response.json();
-      console.log(`[CS2 API] Recent activity fetched successfully:`, activity);
       return activity;
     } catch (error) {
       console.error(`[CS2 API] Error in getCS2RecentActivity:`, error);
@@ -246,43 +232,6 @@ class FirebaseDataService {
     }
   }
 
-  // Legacy methods (keeping for backward compatibility)
-  async uploadDemoData(steamId, demoData) {
-    console.log('🚀 Starting demo upload for steamId:', steamId);
-    console.log('📁 File details:', {
-      name: demoData.file.name,
-      size: demoData.file.size,
-      type: demoData.file.type
-    });
-    
-    const formData = new FormData();
-    formData.append('demo', demoData.file);
-    formData.append('steamId', steamId);
-
-    try {
-      console.log('📤 Sending upload request to /api/cs2/upload-demo');
-      const response = await fetch('/api/cs2/upload-demo', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include', // Important for Steam session auth
-      });
-
-      console.log('📥 Upload response status:', response.status);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Upload failed with response:', errorText);
-        throw new Error(`Demo upload failed: ${response.status} ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ Upload successful:', result);
-      return result;
-    } catch (error) {
-      console.error('❌ Error uploading demo:', error);
-      throw error;
-    }
-  }
 
   // Get player stats via API (backward compatibility - redirects to new CS2 API)
   async getPlayerStats(steamId) {

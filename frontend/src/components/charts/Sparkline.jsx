@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function Sparkline({ data = [], width = 120, height = 36, className = '' }) {
+const Sparkline = React.memo(({ data = [], width = 120, height = 36, className = '' }) => {
   if (!data || data.length === 0) return null;
   // map Steam history data: [timestamp, price, volume]
   const points = data.map(([ts, price]) => ({ x: new Date(ts).getTime(), y: parseFloat(String(price).replace(/[^0-9.]/g, '')) || 0 }));
@@ -16,4 +16,14 @@ export default function Sparkline({ data = [], width = 120, height = 36, classNa
       <path d={d} fill="none" stroke="#22c55e" strokeWidth="2" />
     </svg>
   );
-}
+}, (prevProps, nextProps) => {
+  // Deep comparison for data array
+  return prevProps.width === nextProps.width &&
+         prevProps.height === nextProps.height &&
+         prevProps.className === nextProps.className &&
+         JSON.stringify(prevProps.data) === JSON.stringify(nextProps.data);
+});
+
+Sparkline.displayName = 'Sparkline';
+
+export default Sparkline;

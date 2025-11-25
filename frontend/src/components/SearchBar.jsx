@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export default function SearchBar() {
+const SearchBar = React.memo(() => {
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -67,4 +67,8 @@ export default function SearchBar() {
       </p>
     </div>
   );
-} 
+});
+
+SearchBar.displayName = 'SearchBar';
+
+export default SearchBar;

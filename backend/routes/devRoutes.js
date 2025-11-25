@@ -26,7 +26,6 @@ router.get('/watchlist-items', requireDev, requireAuth, async (req, res) => {
     
     const watchlistQuery = await firebaseService.marketWatchlists
       .where('steamId', '==', steamId)
-      .where('isActive', '==', true)
       .get();
     
     const items = watchlistQuery.docs.map(doc => ({
@@ -41,7 +40,81 @@ router.get('/watchlist-items', requireDev, requireAuth, async (req, res) => {
   }
 });
 
-// Simulate price drop for a specific item
+// Update watchlist item price (without triggering notification)
+router.post('/update-watchlist-price', requireDev, requireAuth, async (req, res) => {
+  try {
+    const { itemId, newPrice } = req.body;
+    const steamId = req.user.steamId;
+    
+    if (!itemId || typeof newPrice !== 'number') {
+      return res.status(400).json({ error: 'itemId and newPrice are required' });
+    }
+    
+    // Get the watchlist item
+    const itemDoc = await firebaseService.marketWatchlists.doc(itemId).get();
+    if (!itemDoc.exists) {
+      return res.status(404).json({ error: 'Watchlist item not found' });
+    }
+    
+    const itemData = itemDoc.data();
+    if (itemData.steamId !== steamId) {
+      return res.status(403).json({ error: 'Not authorized to modify this item' });
+    }
+    
+    // Update the item's current price in database
+    await firebaseService.marketWatchlists.doc(itemId).update({
+      currentPrice: newPrice,
+      lastChecked: new Date(),
+      updatedAt: new Date(),
+      priceHistory: admin.firestore.FieldValue.arrayUnion({
+        price: newPrice,
+        timestamp: new Date()
+      })
+    });
+    
+    // Check if price drop triggers alert (simulating production scheduler behavior)
+    const shouldAlert = newPrice <= itemData.targetPrice;
+    
+    if (shouldAlert) {
+      // Automatically send notification (like production scheduler would)
+      await firebaseService.createNotification(steamId, {
+        type: 'price_drop',
+        title: '💰 Price Drop Alert!',
+        message: `${itemData.hashName} dropped to $${newPrice.toFixed(2)} (Target: $${itemData.targetPrice.toFixed(2)})`,
+        data: {
+          hashName: itemData.hashName,
+          itemId: itemId,
+          targetPrice: itemData.targetPrice,
+          currentPrice: newPrice,
+          appid: itemData.appid || 730,
+          url: `/marketplace?appid=${itemData.appid || 730}&hash=${encodeURIComponent(itemData.hashName)}`
+        }
+      });
+      
+      res.json({ 
+        success: true, 
+        message: `Price updated to $${newPrice.toFixed(2)} - Alert triggered!`,
+        itemId,
+        newPrice,
+        alertTriggered: true
+      });
+    } else {
+      res.json({ 
+        success: true, 
+        message: `Price updated to $${newPrice.toFixed(2)} (no alert - above target)`,
+        itemId,
+        newPrice,
+        alertTriggered: false
+      });
+    }
+    
+  } catch (error) {
+    console.error('[DEV] Error updating price:', error);
+    res.status(500).json({ error: 'Failed to update price' });
+  }
+});
+
+// Simulate price drop and trigger notification
 router.post('/simulate-price-drop', requireDev, requireAuth, async (req, res) => {
   try {
     const { itemId, newPrice } = req.body;
@@ -68,38 +141,36 @@ router.post('/simulate-price-drop', requireDev, requireAuth, async (req, res) =>
     await firebaseService.marketWatchlists.doc(itemId).update({
       currentPrice: newPrice,
       lastChecked: new Date(),
+      updatedAt: new Date(),
       priceHistory: admin.firestore.FieldValue.arrayUnion({
         price: newPrice,
         timestamp: new Date()
       })
     });
     
-    // Check if this triggers a price alert (if newPrice <= targetPrice)
-    if (newPrice <= itemData.targetPrice) {
-      await firebaseService.createNotification(steamId, {
-        type: 'price_drop',
-        title: 'Price Drop Alert!',
-        message: `${itemData.hashName} price dropped to $${newPrice.toFixed(2)} (Target: $${itemData.targetPrice.toFixed(2)})`,
-        data: {
-          itemId: itemId,
-          oldPrice: oldPrice,
-          newPrice: newPrice,
-          url: `/marketplace?search=${encodeURIComponent(itemData.hashName)}&appid=${itemData.appid || 730}`
-        }
-      });
-      
-      res.json({ 
-        success: true, 
-        message: `Price updated to $${newPrice.toFixed(2)} and notification sent!`,
-        priceDropTriggered: true
-      });
-    } else {
-      res.json({ 
-        success: true, 
-        message: `Price updated to $${newPrice.toFixed(2)} (no alert triggered)`,
-        priceDropTriggered: false
-      });
-    }
+    // Always trigger notification for testing (simulates production price check finding a drop)
+    await firebaseService.createNotification(steamId, {
+      type: 'price_drop',
+      title: '💰 Price Drop Alert!',
+      message: `${itemData.hashName} dropped to $${newPrice.toFixed(2)} (Target: $${itemData.targetPrice.toFixed(2)})`,
+      data: {
+        hashName: itemData.hashName,
+        itemId: itemId,
+        targetPrice: itemData.targetPrice,
+        currentPrice: newPrice,
+        appid: itemData.appid || 730,
+        // Use hash parameter for exact item match
+        url: `/marketplace?appid=${itemData.appid || 730}&hash=${encodeURIComponent(itemData.hashName)}`
+      }
+    });
+    
+    res.json({ 
+      success: true, 
+      message: `Alert triggered! Price: $${newPrice.toFixed(2)} → Notification sent`,
+      priceDropTriggered: true,
+      itemId,
+      newPrice
+    });
     
   } catch (error) {
     console.error('[DEV] Error simulating price drop:', error);
@@ -107,7 +178,7 @@ router.post('/simulate-price-drop', requireDev, requireAuth, async (req, res) =>
   }
 });
 
-// Create a mock watchlist item for testing
+// Create a mock notification for testing (does NOT add to watchlist)
 router.post('/create-mock-item', requireDev, requireAuth, async (req, res) => {
   try {
     const steamId = req.user.steamId;
@@ -117,33 +188,32 @@ router.post('/create-mock-item', requireDev, requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'hashName and targetPrice are required' });
     }
     
-    const mockItem = {
-      steamId: steamId,
-      hashName: hashName,
-      targetPrice: parseFloat(targetPrice),
-      currentPrice: parseFloat(targetPrice) + 5, // Start above target
-      appid: parseInt(appid),
-      isActive: true,
-      createdAt: new Date(),
-      lastChecked: new Date(),
-      priceHistory: [{
-        price: parseFloat(targetPrice) + 5,
-        timestamp: new Date()
-      }]
-    };
-    
-    const docRef = await firebaseService.marketWatchlists.add(mockItem);
+    // Create notification only - do NOT add to actual watchlist
+    await firebaseService.createNotification(steamId, {
+      type: 'price_drop',
+      title: '🎯 Mock Price Drop Alert',
+      message: `${hashName} dropped to $${targetPrice} (Test Notification)`,
+      data: {
+        hashName: hashName,
+        targetPrice: parseFloat(targetPrice),
+        currentPrice: parseFloat(targetPrice),
+        appid: parseInt(appid),
+        isMock: true,
+        // Use hash parameter for exact item match
+        url: `/marketplace?appid=${appid}&hash=${encodeURIComponent(hashName)}`
+      }
+    });
     
     res.json({ 
       success: true, 
-      message: 'Mock watchlist item created',
-      itemId: docRef.id,
-      item: mockItem
+      message: 'Mock notification created (not added to watchlist)',
+      hashName: hashName,
+      targetPrice: parseFloat(targetPrice)
     });
     
   } catch (error) {
-    console.error('[DEV] Error creating mock item:', error);
-    res.status(500).json({ error: 'Failed to create mock item' });
+    console.error('[DEV] Error creating mock notification:', error);
+    res.status(500).json({ error: 'Failed to create mock notification' });
   }
 });
 
@@ -175,3 +245,74 @@ router.delete('/watchlist-item/:itemId', requireDev, requireAuth, async (req, re
 });
 
 export default router;
+
+// ===============================
+// CS2 DEV CLEANUP UTILITIES
+// ===============================
+
+// Purge CS2 data for the authenticated user (or a provided steamId if you are the admin)
+router.post('/cs2/cleanup', requireDev, requireAuth, async (req, res) => {
+  try {
+    const requester = req.user.steamId;
+    const targetSteamId = req.body?.steamId && requester === firebaseService.ADMIN_STEAM_ID
+      ? String(req.body.steamId)
+      : String(requester);
+
+    const db = firebaseService.db;
+    const collections = [
+      { ref: firebaseService.matches, key: 'matches' },
+      { ref: firebaseService.mapStats, key: 'mapStats' },
+      { ref: firebaseService.weaponStats, key: 'weaponStats' }
+    ];
+
+    const deleteByQuery = async (ref, whereField, value) => {
+      let deleted = 0;
+      const snapshot = await ref.where(whereField, '==', value).get();
+      const batchSize = snapshot.size;
+      if (batchSize === 0) return deleted;
+      const batch = db.batch();
+      snapshot.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      deleted += batchSize;
+      return deleted;
+    };
+
+    const results = {};
+    for (const { ref, key } of collections) {
+      results[key] = await deleteByQuery(ref, 'steamId', targetSteamId);
+    }
+
+    // Delete gsiSession doc
+    try {
+      await firebaseService.gsiSessions.doc(targetSteamId).delete();
+      results.gsiSessions = 1;
+    } catch (_) {
+      results.gsiSessions = 0;
+    }
+
+    // Reset playerStats
+    try {
+      await firebaseService.playerStats.doc(targetSteamId).set({
+        steamId: targetSteamId,
+        totalKills: 0,
+        totalDeaths: 0,
+        totalAssists: 0,
+        totalMVPs: 0,
+        kdRatio: 0,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+        lastSeen: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      results.playerStatsReset = true;
+    } catch (_) {
+      results.playerStatsReset = false;
+    }
+
+    return res.json({ success: true, steamId: targetSteamId, ...results });
+  } catch (error) {
+    console.error('[DEV] Error cleaning up CS2 data:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Cleanup failed' });
+  }
+});
+
+// Patch a specific match's basic stats (dev-only helper to correct legacy saves)
+// (Removed dev-only patch and purge routes per request)

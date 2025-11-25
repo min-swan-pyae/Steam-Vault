@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { heroAttackType } from '../config/heroConfig';
+import { heroAttackType, heroNameMap } from '../config/heroConfig';
 import { fetchDetailedHeroStats } from '../features/stats/statsSlice';
-import { dotaService } from '../services/dotaService';
-import { FaChartBar,FaMapSigns, FaChartLine, FaUsers, FaGamepad, FaArrowUp, FaArrowDown, FaStar, FaShieldAlt, FaFistRaised, FaBrain, FaRunning, FaCoins, FaCrosshairs, FaSkullCrossbones, FaPlusSquare, FaPercentage } from 'react-icons/fa'; 
+import { formatPercent } from '../utils/formatters';
+import { FaChartBar,FaMapSigns, FaChartLine, FaUsers, FaGamepad, FaArrowUp, FaArrowDown, FaArrowLeft, FaStar, FaShieldAlt, FaFistRaised, FaBrain, FaRunning, FaCoins, FaCrosshairs, FaSkullCrossbones, FaPlusSquare, FaPercentage } from 'react-icons/fa'; 
 import { motion, AnimatePresence } from 'framer-motion'; // Added AnimatePresence
+import CachedItemImage from '../components/CachedItemImage';
 
 // Helper component for stat cards
 const StatCard = ({ title, value, icon, color = 'blue', unit = '' }) => (
@@ -24,6 +25,7 @@ const StatCard = ({ title, value, icon, color = 'blue', unit = '' }) => (
 
 export default function DetailedHeroStats() {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
   const { steamId, heroId } = useParams();
   const { data: heroStats, status, error } = useSelector((state) => state.stats.detailedHeroStats);
   const [selectedTab, setSelectedTab] = useState('overview');
@@ -92,7 +94,7 @@ export default function DetailedHeroStats() {
 
   const formatPercentage = (value) => {
     if (value === undefined || value === null || typeof value !== 'number' || isNaN(value)) return 'N/A';
-    return `${value.toFixed(1)}%`;
+    return formatPercent(value);
   };
 
   const tabContentVariants = {
@@ -128,41 +130,57 @@ export default function DetailedHeroStats() {
   ];
 
   return (
-    
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 text-white p-4 sm:p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Hero Header */} 
-        <motion.div 
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 text-white p-2 sm:p-4 lg:p-8">
+      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
+        {/* Back Button */}
+        <motion.button
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition-colors mb-4"
+        >
+          <FaArrowLeft /> Back
+        </motion.button>
+        
+        {/* Hero Header */}
+        <motion.div
           initial={{ opacity: 0, y: -30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
-          className="bg-gray-800/60 backdrop-blur-md rounded-2xl p-6 sm:p-8 shadow-2xl border border-gray-700/50"
+          className="bg-gray-800/60 backdrop-blur-md rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-700/50"
         >
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              {/* Placeholder for hero image - replace with actual image if available */}
-              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden shadow-lg ring-2 ring-purple-500/50 flex-shrink-0">
-                <img 
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
+            <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
+              {/* Hero image */}
+              <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full overflow-hidden shadow-lg ring-2 ring-purple-500/50 flex-shrink-0">
+                <img
                   src={`/api/dota2/heroes/image/${heroStats.hero_id}`}
                   alt={`${heroStats.hero_name} avatar`}
                   className="w-full h-full object-cover"
                 />
               </div>
-              <div>
-                {console.log('heroStats:', JSON.stringify(heroStats, null, 2))}
-                <h1 className="text-3xl sm:text-4xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-blue-400">{heroStats.hero_name || 'Hero Name'}</h1>
-                <p className="text-gray-400 text-sm sm:text-base">Attack Type - {heroAttackType[heroId].attackType}</p>
-                <p className="text-gray-400 text-sm sm:text-base">Primary Attribute - {heroAttackType[heroId].primaryAttribute}</p>
+              <div className="min-w-0">
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-blue-400 truncate">
+                  {heroNameMap[heroId] ? 
+                    heroNameMap[heroId].split('_').map((word, idx) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : 
+                    (heroStats.hero_name || 'Hero Name')}
+                </h1>
+                <p className="text-gray-400 text-xs sm:text-sm truncate">
+                  Attack Type - {heroAttackType[heroId].attackType}
+                </p>
+                <p className="text-gray-400 text-xs sm:text-sm truncate">
+                  Primary Attribute - {heroAttackType[heroId].primaryAttribute}
+                </p>
               </div>
             </div>
-            <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-8 mt-4 sm:mt-0">
-              <div className="text-center">
-                <p className="text-xs sm:text-sm text-gray-400 uppercase tracking-wider">Total Matches</p>
-                <p className="text-2xl sm:text-3xl font-bold text-white">{heroStats.total_matches_overall || 0}</p>
+            <div className="flex flex-row sm:flex-col gap-4 sm:gap-2 mt-4 sm:mt-0 w-full sm:w-auto justify-between sm:justify-end">
+              <div className="text-center flex-1">
+                <p className="text-xs text-gray-400 uppercase tracking-wider">Total Matches</p>
+                <p className="text-xl sm:text-2xl font-bold text-white break-words">{heroStats.total_matches_overall || 0}</p>
               </div>
-              <div className="text-center">
-                <p className="text-xs sm:text-sm text-gray-400 uppercase tracking-wider">Overall Win Rate</p>
-                <p className={`text-2xl sm:text-3xl font-bold ${heroStats.total_win_rate_overall >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+              <div className="text-center flex-1">
+                <p className="text-xs text-gray-400 uppercase tracking-wider">Overall Win Rate</p>
+                <p className={`text-xl sm:text-2xl font-bold ${heroStats.total_win_rate_overall >= 50 ? 'text-green-400' : 'text-red-400'} break-words`}>
                   {formatPercentage(heroStats.total_win_rate_overall)}
                 </p>
               </div>
@@ -170,16 +188,16 @@ export default function DetailedHeroStats() {
           </div>
         </motion.div>
 
-        {/* Tab Navigation */} 
-        <div className="bg-gray-800/60 backdrop-blur-md rounded-xl p-2 shadow-xl sticky top-4 z-10 border border-gray-700/50">
-          <div className="flex flex-wrap justify-center sm:justify-start gap-2">
+        {/* Tab Navigation */}
+        <div className="bg-gray-800/60 backdrop-blur-md rounded-xl p-1 sm:p-2 shadow-xl sticky top-4 z-10 border border-gray-700/50">
+          <div className="flex flex-wrap justify-center sm:justify-start gap-1 sm:gap-2">
             {['overview', 'items', 'recent'].map((tab) => (
               <motion.button
                 key={tab}
                 onClick={() => setSelectedTab(tab)}
                 className={`
-                  flex-1 sm:flex-none px-4 py-2.5 rounded-lg font-medium text-sm sm:text-base transition-all duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500/70
-                  ${selectedTab === tab 
+                  flex-1 sm:flex-none px-2 py-2 sm:px-4 sm:py-2.5 rounded-lg font-medium text-xs sm:text-base transition-all duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500/70
+                  ${selectedTab === tab
                     ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-md'
                     : 'text-gray-300 hover:bg-gray-700/70 hover:text-white'
                   }
@@ -193,112 +211,63 @@ export default function DetailedHeroStats() {
           </div>
         </div>
 
-        {/* Tab Content */} 
+        {/* Tab Content */}
         <AnimatePresence mode="wait">
           <motion.div
-            key={selectedTab} 
+            key={selectedTab}
             variants={tabContentVariants}
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="bg-gray-800/60 backdrop-blur-md rounded-2xl p-6 sm:p-8 shadow-2xl border border-gray-700/50 min-h-[400px]"
+            className="bg-gray-800/60 backdrop-blur-md rounded-2xl p-3 sm:p-6 shadow-2xl border border-gray-700/50 min-h-[300px] sm:min-h-[400px]"
           >
             {selectedTab === 'overview' && (
-              <div className="space-y-8">
-                <h2 className="text-2xl font-semibold text-white mb-6 border-b-2 border-blue-500/50 pb-2">Performance Overview (Last {heroStats.analyzed_matches_count || 0} Matches)</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 sm:gap-6">
+              <div className="space-y-6 sm:space-y-8">
+                <h2 className="text-xl sm:text-2xl font-semibold text-white mb-4 sm:mb-6 border-b-2 border-blue-500/50 pb-2">
+                  Performance Overview (Last {heroStats.analyzed_matches_count || 0} Matches)
+                </h2>
+                <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 gap-3 sm:gap-6">
                   {overviewStats.map(stat => <StatCard key={stat.title} {...stat} />)}
                 </div>
 
-                {/* Example of a more detailed section - adapt for other data like lane preference, etc. */}
-                {(heroStats.lane_preference && Object.keys(heroStats.lane_preference).length > 0) && (
-                  <div className="bg-gray-700/50 p-6 rounded-xl shadow-lg border border-gray-600/50">
-                    <h3 className="text-xl font-semibold text-white mb-4 flex items-center">
-                      <FaMapSigns className="mr-3 text-green-400" /> Lane Preferences
-                    </h3>
-                    <div className="space-y-3">
-                      {Object.entries(heroStats.lane_preference)
-                        .sort(([,a],[,b]) => b.games - a.games) // Sort by number of games
-                        .map(([lane, laneData]) => (
-                        <div key={lane} className="flex justify-between items-center text-gray-300 py-1">
-                          <span className="capitalize">{lane.replace('_', ' ')}</span>
-                          <div>
-                            <span className="font-semibold text-white bg-gray-600 px-2 py-0.5 rounded-md mr-2">{laneData.games} games</span>
-                            <span className="font-semibold text-white bg-opacity-50 bg-blue-500 px-2 py-0.5 rounded-md">{formatPercentage(laneData.win_rate)} WR</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+            
               </div>
             )}
-            
+
             {selectedTab === 'items' && (
               <div>
-                <h2 className="text-2xl font-semibold text-white mb-6 border-b-2 border-blue-500/50 pb-2">Item Analysis (Last {heroStats.analyzed_matches_count || 0} Matches)</h2>
+                <h2 className="text-xl sm:text-2xl font-semibold text-white mb-4 sm:mb-6 border-b-2 border-blue-500/50 pb-2">
+                  Item Analysis (Last {heroStats.analyzed_matches_count || 0} Matches)
+                </h2>
                 {heroStats.item_usage && Object.keys(heroStats.item_usage).length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
                     {Object.entries(heroStats.item_usage)
-                      .sort(([,a],[,b]) => b.count - a.count)
+                      .sort(([, a], [, b]) => b.count - a.count)
                       .slice(0, 12)
                       .map(([itemName, itemData]) => (
-                        <motion.div 
-                          key={itemName} 
-                          className="bg-gray-700/50 p-4 rounded-xl shadow-lg border border-gray-600/50 flex items-center space-x-4 hover:bg-gray-700 transition-colors duration-200"
-                          initial={{ opacity: 0, y: 10 }} 
-                          animate={{ opacity: 1, y: 0 }} 
+                        <motion.div
+                          key={itemName}
+                          className="bg-gray-700/50 p-3 sm:p-4 rounded-xl shadow-lg border border-gray-600/50 flex items-center space-x-3 sm:space-x-4 hover:bg-gray-700 transition-colors duration-200"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: Math.random() * 0.5 }}
                         >
-                          {/* Item image from backend */}
-                          <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-gray-800 flex items-center justify-center">
-                            {itemData.image ? (
-                              <img 
-                                src={itemData.image}
-                                alt={itemName}
-                                className="w-full h-full object-contain"
-                                onError={(e) => {
-                                  // If backend image fails, try the service method as fallback
-                                  const fallbackUrl = dotaService.getItemImageFallbackUrl(itemName);
-                                  if (e.target.src !== fallbackUrl && fallbackUrl) {
-                                    e.target.src = fallbackUrl;
-                                  } else {
-                                    // Show placeholder
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'flex';
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <img 
-                                src={dotaService.getItemImageUrl(itemName)}
-                                alt={itemName}
-                                className="w-full h-full object-contain"
-                                onError={(e) => {
-                                  const fallbackUrl = dotaService.getItemImageFallbackUrl(itemName);
-                                  if (e.target.src !== fallbackUrl && fallbackUrl) {
-                                    e.target.src = fallbackUrl;
-                                  } else {
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'flex';
-                                  }
-                                }}
-                              />
-                            )}
-                            {/* Placeholder for when image fails to load */}
-                            <div className="w-full h-full bg-gray-600 items-center justify-center text-gray-400 text-xs" style={{ display: 'none' }}>
-                              ?
-                            </div>
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-md overflow-hidden flex-shrink-0 bg-gray-800 flex items-center justify-center">
+                            <CachedItemImage
+                              itemName={itemName}
+                              alt={itemName}
+                              className="w-full h-full object-contain"
+                            />
                           </div>
-                          <div className="flex-1">
-                            <h4 className="text-lg font-semibold text-white capitalize">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-base sm:text-lg font-semibold text-white capitalize truncate">
                               {itemName.replace(/^item_/, '').replace(/_/g, ' ')}
                             </h4>
-                            <p className="text-sm text-gray-400">Picked: {itemData.count} times</p>
-                            <p className={`text-sm ${itemData.win_rate >= 50 ? 'text-green-400' : 'text-red-400'}`}>
+                            <p className="text-xs sm:text-sm text-gray-400 truncate">Picked: {itemData.count} times</p>
+                            <p className={`text-xs sm:text-sm ${itemData.win_rate >= 50 ? 'text-green-400' : 'text-red-400'} truncate`}>
                               Win Rate: {formatPercentage(itemData.win_rate)}
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-gray-500 truncate">
                               Frequency: {itemData.frequency}%
                             </p>
                           </div>
@@ -310,39 +279,38 @@ export default function DetailedHeroStats() {
             )}
             {selectedTab === 'recent' && (
               <div>
-                <h2 className="text-2xl font-semibold text-white mb-6 border-b-2 border-blue-500/50 pb-2">Recent Matches</h2>
+                <h2 className="text-xl sm:text-2xl font-semibold text-white mb-4 sm:mb-6 border-b-2 border-blue-500/50 pb-2">
+                  Recent Matches
+                </h2>
                 {heroStats.recent_matches && heroStats.recent_matches.length > 0 ? (
-                  <div className="space-y-4">
+                  <div className="space-y-3 sm:space-y-4">
                     {heroStats.recent_matches.map(match => (
-                      <>
                       <Link to={`/dota2/match/${match.match_id}`} key={match.match_id}>
-                       <motion.div 
-                        key={match.match_id} 
-                        className={`p-4 rounded-lg shadow-lg border ${match.won ? 'border-green-500/50 bg-green-800/20' : 'border-red-500/50 bg-red-800/20'} hover:shadow-green-500/20 transition-all duration-200`}
-                        initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.random() * 0.3 }}
-                      >
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-                          <div>
-                            <p className={`text-lg font-semibold ${match.won ? 'text-green-300' : 'text-red-300'}`}>
-                              {match.won ? 'Victory' : 'Defeat'}
-                            </p>
-                            <p className="text-xs text-gray-400">Match ID: {match.match_id} | Duration: {Math.floor(match.duration / 60)}m {match.duration % 60}s |
-                        Date: {match.start_time 
-                          ? new Date(match.start_time * 1000).toLocaleDateString() 
-                          : 'Unknown date'}
-                      </p>
+                        <motion.div
+                          className={`p-2 sm:p-4 rounded-lg shadow-lg border ${match.won ? 'border-green-500/50 bg-green-800/20' : 'border-red-500/50 bg-red-800/20'} hover:shadow-green-500/20 transition-all duration-200`}
+                          initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.random() * 0.3 }}
+                        >
+                          <div className="flex flex-col sm:flex-row justify-between items-center gap-2 sm:gap-4">
+                            <div className="flex-1 min-w-0 mb-2 sm:mb-0">
+                              <p className={`text-base sm:text-lg font-semibold ${match.won ? 'text-green-300' : 'text-red-300'} break-words whitespace-normal`}>
+                                {match.won ? 'Victory' : 'Defeat'}
+                              </p>
+                              <p className="text-xs text-gray-400 break-words whitespace-normal">
+                                Match ID: {match.match_id} | Duration: {Math.floor(match.duration / 60)}m {match.duration % 60}s<br />
+                                Date: {match.start_time
+                                  ? new Date(match.start_time * 1000).toLocaleDateString()
+                                  : 'Unknown date'}
+                              </p>
+                            </div>
+                            {/* Stats: stack vertically on mobile, row on sm+ */}
+                            <div className="flex flex-col sm:flex-row gap-1 sm:gap-4 text-xs sm:text-sm text-gray-300 text-center w-full sm:w-auto">
+                              <span className="block">K/D/A: <span className="font-semibold">{match.kills}/{match.deaths}/{match.assists}</span></span>
+                              <span className="block">GPM: <span className="font-semibold">{match.gpm}</span></span>
+                              <span className="block">XPM: <span className="font-semibold">{match.xpm}</span></span>
+                            </div>
                           </div>
-                          <div className="mt-2 sm:mt-0 text-sm text-gray-300 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1">
-                            <span>K/D/A: {match.kills}/{match.deaths}/{match.assists}</span>
-                            <span>GPM: {match.gpm}</span>
-                            <span>XPM: {match.xpm}</span>
-                            <span>Lane: {match.lane_role || 'N/A'}</span>
-                          </div>
-                        </div>
-                      </motion.div>
-                       </Link>
-                       </>
-                     
+                        </motion.div>
+                      </Link>
                     ))}
                   </div>
                 ) : <p className="text-gray-400">No recent match details available for the analyzed set.</p>}

@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 import { fetchPlaytimeTrends, fetchSteamProfile } from '../../features/stats/statsSlice';
 import { FaLock } from 'react-icons/fa';
 
-export default function PlaytimeTrends({ steamId }) {
+const PlaytimeTrends = React.memo(({ steamId }) => {
   const dispatch = useDispatch();
   const { data: trends, status, error } = useSelector((state) => state.stats.playtimeTrends);
   const { data: steamData } = useSelector((state) => state.stats.steamProfile);
@@ -92,7 +92,7 @@ export default function PlaytimeTrends({ steamId }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-gray-700 rounded-lg p-4">
           <p className="text-gray-400 text-sm">Average Daily Playtime</p>
-          <p className="text-2xl font-bold">{console.log("Trends : "+ JSON.stringify(trends))}{formatDuration(Math.round(averagePlaytime))}</p>
+          <p className="text-2xl font-bold">{formatDuration(Math.round(averagePlaytime))}</p>
         </div>
         <div className="bg-gray-700 rounded-lg p-4">
           <p className="text-gray-400 text-sm">Last Played</p>
@@ -100,7 +100,6 @@ export default function PlaytimeTrends({ steamId }) {
         </div>
         <div className="bg-gray-700 rounded-lg p-4">
           <p className="text-gray-400 text-sm">Total Dota 2 Playtime</p>
-          {console.log("Steam Data:", steamData)}
           {steamData?.playtime_forever > 0 ? (
             <p className="text-2xl font-bold">{formatDuration(steamData?.playtime_forever)}</p>
           ) : (
@@ -177,4 +176,8 @@ export default function PlaytimeTrends({ steamId }) {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => prevProps.steamId === nextProps.steamId);
+
+PlaytimeTrends.displayName = 'PlaytimeTrends';
+
+export default PlaytimeTrends;

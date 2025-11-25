@@ -1,4 +1,6 @@
-export const PlayerSearch=({ searchQuery, setSearchQuery, handleSearch }) =>{
+import React from 'react';
+
+export const PlayerSearch = React.memo(({ searchQuery, setSearchQuery, handleSearch }) => {
   return (
     <div className="mb-8">
       <form onSubmit={handleSearch} className="flex">
@@ -18,4 +20,10 @@ export const PlayerSearch=({ searchQuery, setSearchQuery, handleSearch }) =>{
       </form>
     </div>
   );
-}
+}, (prevProps, nextProps) => 
+  prevProps.searchQuery === nextProps.searchQuery &&
+  prevProps.setSearchQuery === nextProps.setSearchQuery &&
+  prevProps.handleSearch === nextProps.handleSearch
+);
+
+PlayerSearch.displayName = 'PlayerSearch';

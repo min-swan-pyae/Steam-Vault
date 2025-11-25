@@ -12,6 +12,7 @@ const CACHE_CONFIG = {
   HERO_DATA: { ttl: 24 * 60 * 60 * 1000, storage: 'localStorage' }, // 24 hours
   CS2_DATA: { ttl: 30 * 60 * 1000, storage: 'localStorage' }, // 30 minutes
   META_DATA: { ttl: 60 * 60 * 1000, storage: 'localStorage' }, // 1 hour
+  FORUM_DATA: { ttl: 15 * 60 * 1000, storage: 'localStorage' }, // forum listing + post details, shorter TTL
   SESSION_DATA: { ttl: 30 * 60 * 1000, storage: 'sessionStorage' }, // 30 minutes, session only
   
   // Cache size limits (number of entries)
@@ -74,7 +75,6 @@ class APIResponseCache {
       const memoryData = this.memoryCache.get(cacheKey);
       if (this.isValidCacheEntry(memoryData, cacheType)) {
         this.cacheStats.hits++;
-        console.log(`[CACHE HIT - Memory] ${cacheKey}`);
         return memoryData.data;
       } else {
         this.memoryCache.delete(cacheKey);
@@ -93,7 +93,6 @@ class APIResponseCache {
           // Update memory cache
           this.memoryCache.set(cacheKey, parsedData);
           this.cacheStats.hits++;
-          console.log(`[CACHE HIT - Storage] ${cacheKey}`);
           return parsedData.data;
         } else {
           // Remove expired entry
@@ -105,7 +104,6 @@ class APIResponseCache {
     }
 
     this.cacheStats.misses++;
-    console.log(`[CACHE MISS] ${cacheKey}`);
     return null;
     } catch (error) {
       console.warn('[CACHE ERROR] Failed to get from cache:', error.message);
@@ -134,15 +132,28 @@ class APIResponseCache {
     // Update persistent storage
     try {
       const storage = this.getStorage(cacheType);
+      const dataString = JSON.stringify(cacheEntry);
+      
+      // Skip caching if data is too large (> 5MB)
+      if (dataString.length > 5 * 1024 * 1024) {
+        console.warn(`[CACHE WARNING] Data too large to cache (${(dataString.length / 1024 / 1024).toFixed(2)}MB), skipping: ${cacheKey}`);
+        return;
+      }
       
       // Check storage quota before writing
       if (this.checkStorageQuota(storage, cacheKey, cacheEntry)) {
-        storage.setItem(cacheKey, JSON.stringify(cacheEntry));
+        storage.setItem(cacheKey, dataString);
         this.cacheStats.writes++;
-        console.log(`[CACHE SET] ${cacheKey}`);
       } else {
-        console.warn(`[CACHE WARNING] Storage quota exceeded for ${cacheKey}`);
+        console.warn(`[CACHE WARNING] Storage quota exceeded for ${cacheKey}, performing eviction...`);
         this.performCacheEviction(storage, cacheType);
+        // Try again after eviction
+        try {
+          storage.setItem(cacheKey, dataString);
+          this.cacheStats.writes++;
+        } catch (retryError) {
+          console.warn(`[CACHE WARNING] Still can't cache after eviction, skipping: ${cacheKey}`);
+        }
       }
     } catch (error) {
       console.error('[CACHE ERROR] Failed to set in storage:', error);
@@ -150,6 +161,8 @@ class APIResponseCache {
       // If storage is full, try to clear some space
       if (error.name === 'QuotaExceededError') {
         this.performCacheEviction(this.getStorage(cacheType), cacheType);
+        // Don't retry, just skip this cache write
+        console.warn(`[CACHE WARNING] Quota exceeded, skipped caching: ${cacheKey}`);
       }
     }
     } catch (keyError) {
@@ -231,7 +244,6 @@ class APIResponseCache {
         this.cacheStats.evictions++;
       }
 
-      console.log(`[CACHE EVICTION] Removed ${removeCount} entries from ${cacheType} cache`);
     } catch (error) {
       console.error('[CACHE ERROR] Failed to perform eviction:', error);
     }
@@ -261,7 +273,6 @@ class APIResponseCache {
         });
       });
       
-      console.log(`[CACHE INIT] Loaded ${this.memoryCache.size} entries into memory cache`);
     } catch (error) {
       console.error('[CACHE ERROR] Failed to initialize from storage:', error);
     }
@@ -320,7 +331,6 @@ class APIResponseCache {
       });
 
       if (removedCount > 0) {
-        console.log(`[CACHE CLEANUP] Removed ${removedCount} expired entries`);
       }
     } catch (error) {
       console.error('[CACHE ERROR] Cleanup failed:', error);
@@ -348,12 +358,34 @@ class APIResponseCache {
         });
       });
       
-      console.log(`[CACHE CLEAR] Cleared ${keysToRemove.length} entries from ${cacheType} cache`);
     } else {
       // Clear all caches
       this.memoryCache.clear();
       this.clearAllStorageCaches();
-      console.log('[CACHE CLEAR] Cleared all caches');
+    }
+  }
+
+  /**
+   * Clear cache entries matching a URL pattern
+   */
+  clearByPattern(urlPattern, cacheType = null) {
+    const keysToRemove = [];
+    
+    for (const [key, entry] of this.memoryCache.entries()) {
+      if (cacheType && !key.startsWith(`${cacheType}:`)) continue;
+      if (entry.endpoint && entry.endpoint.includes(urlPattern)) {
+        keysToRemove.push(key);
+      }
+    }
+    
+    keysToRemove.forEach(key => {
+      this.memoryCache.delete(key);
+      [localStorage, sessionStorage].forEach(storage => {
+        storage.removeItem(key);
+      });
+    });
+    
+    if (keysToRemove.length > 0) {
     }
   }
 
@@ -387,6 +419,44 @@ class APIResponseCache {
   }
 
   /**
+   * Cleanup old/expired entries (called by cache manager)
+   */
+  cleanup() {
+    
+    // Clean memory cache
+    const now = Date.now();
+    let cleaned = 0;
+    
+    for (const [key, entry] of this.memoryCache.entries()) {
+      if (!this.isValidCacheEntry(entry, entry.cacheType)) {
+        this.memoryCache.delete(key);
+        cleaned++;
+      }
+    }
+    
+    // Clean storage caches
+    [localStorage, sessionStorage].forEach(storage => {
+      const keys = Object.keys(storage);
+      keys.forEach(key => {
+        if (this.isCacheKey(key)) {
+          try {
+            const entry = JSON.parse(storage.getItem(key));
+            if (!this.isValidCacheEntry(entry, entry.cacheType)) {
+              storage.removeItem(key);
+              cleaned++;
+            }
+          } catch (e) {
+            // Invalid entry, remove it
+            storage.removeItem(key);
+            cleaned++;
+          }
+        }
+      });
+    });
+    
+  }
+
+  /**
    * Destroy cache instance
    */
   destroy() {
@@ -408,7 +478,8 @@ export const CACHE_TYPES = {
   HERO_DATA: 'HERO_DATA',
   CS2_DATA: 'CS2_DATA',
   META_DATA: 'META_DATA',
-  SESSION_DATA: 'SESSION_DATA'
+  SESSION_DATA: 'SESSION_DATA',
+  FORUM_DATA: 'FORUM_DATA'
 };
 
 export default apiCache;

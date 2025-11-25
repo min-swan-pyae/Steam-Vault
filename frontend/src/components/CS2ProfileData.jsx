@@ -1,16 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { formatPercent } from '../utils/formatters';
 import ErrorMessage from './ErrorMessage';
 import LoadingSpinner from './LoadingSpinner';
 import NotAuthenticated from './NotAuthenticated';
-
-/**
- * CS2 Profile Data Component - Professional Statistics Display
- * 
- * Displays comprehensive CS2 statistics like professional sites (CSSTATS.GG)
- * Uses Steam API for historical data and Firebase for real-time GSI data
- */
 
 const CS2ProfileData = ({ steamId: propSteamId }) => {
   const { steamId: paramSteamId } = useParams();
@@ -46,7 +40,6 @@ const CS2ProfileData = ({ steamId: propSteamId }) => {
       setLoading(true);
       setError(null);
       
-      console.log(`[CS2 PROFILE] Fetching comprehensive profile data for: ${steamId}`);
       
             const response = await fetch(`/api/cs2/player/${steamId}/profile`, {
         method: 'GET',
@@ -80,9 +73,7 @@ const CS2ProfileData = ({ steamId: propSteamId }) => {
 
   if (loading) {
     return (
-      <div>
-        <LoadingSpinner message="Loading CS2 profile data..." />
-      </div>
+      <LoadingSpinner overlay={true} message="Loading CS2 profile data..." />
     );
   }
 
@@ -165,38 +156,78 @@ const CS2ProfileData = ({ steamId: propSteamId }) => {
     );
   }
 
+  // Check if viewing own profile
+  const isOwnProfile = user?.steamId && String(user.steamId) === String(steamId);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 p-2 sm:p-4">
       <div className="max-w-7xl mx-auto">
+        {/* Context header: whose profile is being viewed */}
+        <ProfileContextHeader profile={profileData.profile} steamId={steamId} />
         
         {/* Profile Header */}
         <ProfileHeader profile={profileData.profile} gameInfo={profileData.gameInfo} />
         
-        {/* Statistics Overview */}
+        {/* Statistics Overview - Always visible */}
         <StatisticsOverview statistics={profileData.statistics} />
         
-        {/* Performance Metrics */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
-          <RankCard rank={profileData.rank} statistics={profileData.statistics} />
-          <TrendsCard trends={profileData.trends} />
-        </div>
+        {/* Detailed sections - Only visible for own profile */}
+        {isOwnProfile && (
+          <>
+            {/* Performance Metrics */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+              <RankCard rank={profileData.rank} statistics={profileData.statistics} />
+              <TrendsCard trends={profileData.trends} />
+            </div>
+            
+            {/* Data Quality and Sources */}
+            <DataQualityCard 
+              dataQuality={profileData.dataQuality} 
+              gameInfo={profileData.gameInfo}
+              steamId={steamId}
+            />
+            
+            {/* Recent Matches */}
+            <RecentMatchesCard matches={profileData.recentMatches} />
+            
+            {/* Performance Breakdown */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+              <MapPerformanceCard maps={profileData.mapPerformance} />
+              <WeaponPerformanceCard weapons={profileData.weaponPerformance} />
+            </div>
+          </>
+        )}
         
-        {/* Data Quality and Sources */}
-        <DataQualityCard 
-          dataQuality={profileData.dataQuality} 
-          gameInfo={profileData.gameInfo}
-          steamId={steamId}
-        />
+        {/* Message for viewing other profiles */}
+        {!isOwnProfile && (
+          <div className="mt-6 sm:mt-8 bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-700">
+            <div className="text-center text-gray-400">
+              <svg className="w-12 h-12 mx-auto mb-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              <p className="text-sm sm:text-base">Detailed statistics are only available for your own profile.</p>
+              <p className="text-xs sm:text-sm text-gray-500 mt-2">Estimated rank, performance trends, match history, and detailed breakdowns are private.</p>
+            </div>
+          </div>
+        )}
         
-        {/* Recent Matches */}
-        <RecentMatchesCard matches={profileData.recentMatches} />
-        
-        {/* Performance Breakdown */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-          <MapPerformanceCard maps={profileData.mapPerformance} />
-          <WeaponPerformanceCard weapons={profileData.weaponPerformance} />
-        </div>
-        
+      </div>
+    </div>
+  );
+};
+
+const ProfileContextHeader = ({ profile, steamId }) => {
+  const { user } = useAuth();
+  const isMe = user?.steamId && String(user.steamId) === String(steamId);
+  const name = profile?.personaName || 'Unknown Player';
+  return (
+    <div className="flex items-center justify-between mb-3 sm:mb-4">
+      <div className="flex items-center space-x-2">
+        <span className="text-xs sm:text-sm text-gray-300">Profile:</span>
+        <span className="text-sm sm:text-base font-semibold text-white">{name}</span>
+        {isMe && (
+          <span className="ml-2 inline-flex items-center rounded-full bg-green-800/50 text-green-200 px-2 py-0.5 text-[10px] sm:text-xs border border-green-700">You</span>
+        )}
       </div>
     </div>
   );
@@ -312,7 +343,7 @@ const StatisticsOverview = ({ statistics }) => {
       case 'decimal':
         return Number(value).toFixed(2);
       case 'percent':
-        return Number(value).toFixed(1) + '%';
+        return formatPercent(Number(value));
       case 'number':
         return Number(value).toLocaleString();
       case 'time':
@@ -422,19 +453,26 @@ const RankCard = ({ rank, statistics }) => {
     return rankColors[rankName] || 'from-gray-600 to-gray-700 border-gray-500';
   };
 
-  const rankColor = getRankColor(rank.estimatedRank);
+  const comp = rank?.competitive || rank || {};
+  const rankColor = getRankColor(comp.estimatedRank || rank.estimatedRank || 'Unranked');
 
   return (
     <div className={`bg-gradient-to-br ${rankColor} rounded-xl p-4 sm:p-6 shadow-lg border`}>
-      <h3 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4">🏆 Estimated Rank</h3>
-      <div className="text-center">
-        <div className="text-2xl sm:text-3xl font-bold text-white mb-2">{rank.estimatedRank}</div>
-        <div className="text-xs sm:text-sm text-gray-200 mb-3 sm:mb-4 leading-tight">
-          {rank.confidence > 0 ? (
-            <>Confidence: {rank.confidence}% ({rank.basedOnMatches} matches)</>
-          ) : (
-            <>Play matches to get rank estimation</>
-          )}
+      <h3 className="text-lg sm:text-xl font-bold text-white mb-3 sm:mb-4 inline-flex items-center gap-2">
+        🏆 Estimated Rank
+        <span title="Estimated from recent performance. Not an official Valve/CS rating." className="text-white/80 cursor-help text-sm">ⓘ</span>
+      </h3>
+      <div className="text-center space-y-3">
+        <div>
+          <div className="text-white text-sm opacity-80">Competitive</div>
+          <div className="text-2xl sm:text-3xl font-bold text-white">{comp.estimatedRank || 'Unranked'}</div>
+          <div className="text-xs sm:text-sm text-gray-200 leading-tight">
+            {comp.confidence > 0 ? (
+              <>Confidence: {comp.confidence}% ({comp.basedOnMatches} matches)</>
+            ) : (
+              <>Play matches to get rank estimation</>
+            )}
+          </div>
         </div>
         
         {/* Performance Indicators */}
@@ -448,7 +486,11 @@ const RankCard = ({ rank, statistics }) => {
           <div className="bg-black bg-opacity-20 rounded-lg p-2 sm:p-3">
             <div className="text-gray-200 text-xs sm:text-sm">Win Rate</div>
             <div className="text-white text-base sm:text-lg font-bold">
-              {statistics?.winRate ? Number(statistics.winRate).toFixed(1) + '%' : '--'}
+              {statistics?.winRate !== undefined && statistics?.winRate !== null 
+                ? (Number.isInteger(Number(statistics.winRate))
+                    ? `${Number(statistics.winRate)}%`
+                    : `${Number(statistics.winRate).toFixed(1)}%`)
+                : '--'}
             </div>
           </div>
         </div>
@@ -458,7 +500,11 @@ const RankCard = ({ rank, statistics }) => {
           <div className="flex justify-between items-center">
             <span className="text-gray-200">Headshot Rate</span>
             <span className="text-white">
-              {statistics?.headshotPercentage ? Number(statistics.headshotPercentage).toFixed(1) + '%' : '--'}
+              {statistics?.headshotPercentage !== undefined && statistics?.headshotPercentage !== null 
+                ? (Number.isInteger(Number(statistics.headshotPercentage))
+                    ? `${Number(statistics.headshotPercentage)}%`
+                    : `${Number(statistics.headshotPercentage).toFixed(1)}%`)
+                : '--'}
             </span>
           </div>
           <div className="flex justify-between items-center">
@@ -469,7 +515,7 @@ const RankCard = ({ rank, statistics }) => {
           </div>
         </div>
         
-        {rank.estimatedRank === 'Unranked' && (
+        {(comp.estimatedRank || rank.estimatedRank) === 'Unranked' && (
           <div className="mt-3 sm:mt-4 bg-black bg-opacity-30 rounded-lg p-2 sm:p-3">
             <div className="text-xs text-gray-300 leading-tight">
               💡 Play more matches to get an accurate rank estimation
@@ -568,7 +614,7 @@ const DataQualityCard = ({ dataQuality, gameInfo, steamId }) => {
     // In production: backend should be on the same domain
     const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const backendUrl = isLocalDev 
-      ? 'http://localhost:3000' 
+      ? 'http://127.0.0.1:3000' 
       : window.location.origin;
     
     return `"Steam Vault CS2 Integration"
@@ -578,27 +624,37 @@ const DataQualityCard = ({ dataQuality, gameInfo, steamId }) => {
     "buffer"       "0.1"
     "throttle"     "0.1"
     "heartbeat"    "30.0"
+
     "auth"
     {
         "steamid" "${steamId}"
     }
+
     "output"
     {
         "precision_time" "3"
         "precision_position" "1"
         "precision_vector" "3"
     }
+
     "data"
     {
-        "provider"            "1"
-        "map"                 "1"
-        "round"               "1"
-        "player"              "1"
-        "allplayers"          "1"
-        "bomb"                "1"
-        "phase_countdowns"    "1"
-        "allgrenades"         "1"
-        "weapons"             "1"
+        "provider"                 "1"
+        "map"                      "1"
+        "round"                    "1"
+        "phase_countdowns"         "1"
+        "bomb"                     "1"
+        "allgrenades"              "1"
+
+        "player_id"                "1"
+        "player_state"             "1"
+        "player_weapons"           "1"
+        "player_match_stats"       "1"
+
+        "allplayers_id"            "1"
+        "allplayers_state"         "1"
+        "allplayers_weapons"       "1"
+        "allplayers_match_stats"   "1"
     }
 }`;
   };
@@ -642,7 +698,7 @@ const DataQualityCard = ({ dataQuality, gameInfo, steamId }) => {
           <div className="flex items-center justify-between mb-3">
             <span className="text-gray-300 text-sm sm:text-base">Data Completeness</span>
             <div className="text-right">
-              <span className="text-blue-300 font-bold text-sm sm:text-base">{score}%</span>
+              <span className="text-blue-300 font-bold text-sm sm:text-base">{Number.isInteger(Number(score)) ? `${Number(score)}%` : `${Number(score).toFixed(1)}%`}</span>
               <span className="text-xs sm:text-sm text-gray-400 ml-2">({getQualityLabel(score)})</span>
             </div>
           </div>
@@ -866,30 +922,51 @@ const RecentMatchesCard = ({ matches }) => (
               <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Date</th>
               <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Map</th>
               <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Result</th>
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">K/D</th>
+              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">K/D/A</th>
+              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">MVP</th>
               <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Score</th>
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Damage</th>
             </tr>
           </thead>
           <tbody>
             {matches.map((match, index) => (
               <tr key={index} className="border-b border-gray-700 hover:bg-gray-700">
                 <td className="py-2 text-gray-300 text-xs sm:text-sm">
-                  {new Date(match.date).toLocaleDateString()}
+                  {(() => {
+                    const ts = match.date || match.createdAt;
+                    const toMs = (v) => {
+                      if (!v) return 0;
+                      if (typeof v.toMillis === 'function') return v.toMillis();
+                      if (typeof v === 'object' && (v._seconds || v.seconds)) {
+                        const s = v._seconds ?? v.seconds;
+                        const ns = v._nanoseconds ?? v.nanoseconds ?? 0;
+                        return (s * 1000) + Math.floor(ns / 1e6);
+                      }
+                      const d = new Date(v);
+                      return isNaN(d.getTime()) ? 0 : d.getTime();
+                    };
+                    const ms = toMs(ts);
+                    return ms ? new Date(ms).toLocaleString() : '—';
+                  })()}
                 </td>
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">{match.map || 'Unknown'}</td>
+                <td className="py-2 text-gray-300 text-xs sm:text-sm">{match.mapName || match.map || 'Unknown'}</td>
                 <td className="py-2">
                   <span className={`px-2 py-1 rounded text-xs ${
-                    match.result === 'win' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+                    match.result === 'Win' ? 'bg-green-600 text-white' : (match.result === 'Tie' ? 'bg-yellow-600 text-white' : 'bg-red-600 text-white')
                   }`}>
-                    {match.result || 'Unknown'}
+                    {match.result || 'Unknown'}{match.resultReason === 'Surrender' ? ' (Surrender)' : ''}
                   </span>
                 </td>
                 <td className="py-2 text-gray-300 text-xs sm:text-sm">
-                  {match.kills || 0}/{match.deaths || 0}
+                  {(match.kills ?? 0)}/{(match.deaths ?? 0)}/{(match.assists ?? 0)}
                 </td>
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">{match.score || 'N/A'}</td>
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">{match.damage || 0}</td>
+                <td className="py-2 text-gray-300 text-xs sm:text-sm">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded ${
+                    (match.mvps ?? 0) > 0 ? 'bg-yellow-700 text-yellow-200' : 'bg-gray-700 text-gray-300'
+                  }`}>
+                    ⭐ {match.mvps ?? 0}
+                  </span>
+                </td>
+                <td className="py-2 text-gray-300 text-xs sm:text-sm">{(match.score ?? '0') + ' - ' + (match.opponentScore ?? '0')}</td>
               </tr>
             ))}
           </tbody>
@@ -903,36 +980,55 @@ const RecentMatchesCard = ({ matches }) => (
   </div>
 );
 
-const MapPerformanceCard = ({ maps }) => (
-  <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 sm:p-6 shadow-lg border border-gray-700">
-    <h3 className="text-lg sm:text-xl font-bold text-blue-300 mb-3 sm:mb-4">🗺️ Map Performance</h3>
-    
-    {maps && maps.length > 0 ? (
-      <div className="space-y-2 sm:space-y-3">
-        {maps.slice(0, 8).map((map, index) => (
-          <div key={index} className="flex items-center justify-between bg-gray-700 rounded-lg p-2 sm:p-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3">
-              <span className="text-blue-300 font-semibold text-sm sm:text-base">{map.mapName}</span>
-              <span className="text-gray-400 text-xs sm:text-sm">{map.matchesPlayed} matches</span>
-            </div>
-            <div className="text-right">
-              <div className="text-green-400 font-bold text-sm sm:text-base">
-                {map.wins || 0}W - {(map.matchesPlayed - map.wins) || 0}L
+const MapPerformanceCard = ({ maps }) => {
+  const formatPercent = (wins, total) => {
+    const t = Number(total) || 0;
+    const w = Number(wins) || 0;
+    if (t <= 0) return '0%';
+
+    // Compute raw percent
+    const percent = (w / t) * 100;
+
+    // If the percentage is an exact integer, show without decimals
+    // Use a safe integer check to avoid floating point issues
+    const isInteger = Number.isInteger(w * 100 / t);
+    if (isInteger) return `${Math.round(percent)}%`;
+
+    // Otherwise, show one decimal place (rounded)
+    return `${percent.toFixed(1)}%`;
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 sm:p-6 shadow-lg border border-gray-700">
+      <h3 className="text-lg sm:text-xl font-bold text-blue-300 mb-3 sm:mb-4">🗺️ Map Performance</h3>
+      
+      {maps && maps.length > 0 ? (
+        <div className="space-y-2 sm:space-y-3">
+          {maps.slice(0, 8).map((map, index) => (
+            <div key={index} className="flex items-center justify-between bg-gray-700 rounded-lg p-2 sm:p-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3">
+                <span className="text-blue-300 font-semibold text-sm sm:text-base">{map.mapName}</span>
+                <span className="text-gray-400 text-xs sm:text-sm">{map.totalMatches || 0} matches</span>
               </div>
-              <div className="text-gray-400 text-xs sm:text-sm">
-                {map.matchesPlayed > 0 ? `${((map.wins / map.matchesPlayed) * 100).toFixed(1)}%` : '0%'}
+              <div className="text-right">
+                <div className="text-green-400 font-bold text-sm sm:text-base">
+                  {map.wins || 0}W - {Math.max(0, (map.totalMatches || 0) - (map.wins || 0))}L
+                </div>
+                <div className="text-gray-400 text-xs sm:text-sm">
+                  {formatPercent(map.wins, map.totalMatches)}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
-    ) : (
-      <div className="text-center py-6 sm:py-8 text-gray-400 text-sm sm:text-base">
-        No map statistics available. Play more matches to see map performance.
-      </div>
-    )}
-  </div>
-);
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-6 sm:py-8 text-gray-400 text-sm sm:text-base">
+          No map statistics available. Play more matches to see map performance.
+        </div>
+      )}
+    </div>
+  );
+};
 
 const WeaponPerformanceCard = ({ weapons }) => (
   <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 sm:p-6 shadow-lg border border-gray-700">
@@ -947,9 +1043,7 @@ const WeaponPerformanceCard = ({ weapons }) => (
             </div>
             <div className="text-right">
               <div className="text-green-400 font-bold text-sm sm:text-base">{weapon.kills || 0} kills</div>
-              <div className="text-gray-400 text-xs sm:text-sm">
-                {weapon.headshots || 0} HS ({weapon.headshotPercentage || 0}%)
-              </div>
+              
             </div>
           </div>
         ))}

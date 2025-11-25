@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { apiCache, CACHE_TYPES } from './apiCache.js';
 import { backgroundRefreshService } from './backgroundRefresh.js';
+import { requestQueue } from './requestQueue.js';
 
 // Create axios instance with better configuration
 const api = axios.create({
@@ -9,17 +10,21 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Important for handling cookies with CORS
-  timeout: 10000, // 10s timeout
+  timeout: 30000, // 30s timeout (increased to prevent failures on slow operations)
   retryDelay: 1000, // 1s delay between retries
-  maxRetries: 2 // Retry failed requests twice
+  maxRetries: 3 // Retry failed requests 3 times (increased for network issues)
 });
 
-// Cache-first request wrapper
-const cachedRequest = async (config, cacheType = CACHE_TYPES.PLAYER_DATA, forceRefresh = false) => {
+// Cache-first request wrapper with rate limiting and request queueing
+const cachedRequest = async (config, cacheType = CACHE_TYPES.PLAYER_DATA, forceRefresh = false, useQueue = true) => {
   const { url, params, method } = config;
   
   // Only cache GET requests
   if (method && method.toLowerCase() !== 'get') {
+    // Non-GET requests should still respect rate limits
+    if (useQueue) {
+      return requestQueue.enqueue(() => api(config), url, 1);
+    }
     return api(config);
   }
 
@@ -28,6 +33,7 @@ const cachedRequest = async (config, cacheType = CACHE_TYPES.PLAYER_DATA, forceR
     try {
       const cachedData = apiCache.get(url, params, cacheType);
       if (cachedData) {
+        console.log('[API CACHE] Using cached data for', url);
         return Promise.resolve(cachedData);
       }
     } catch (cacheError) {
@@ -36,32 +42,52 @@ const cachedRequest = async (config, cacheType = CACHE_TYPES.PLAYER_DATA, forceR
     }
   }
 
-  // Make API request
-  try {
-    const response = await api(config);
-    
-    // Cache successful responses
-    if (response && typeof response === 'object') {
-      try {
-        apiCache.set(url, params, response, cacheType);
-      } catch (cacheError) {
-        console.warn('[API] Cache set failed, but API request succeeded:', cacheError.message);
-        // Continue without caching - the response is still valid
+  // Make API request through queue to prevent rate limiting
+  const makeRequest = async () => {
+    try {
+      const response = await api(config);
+      
+      // Extract data from axios response
+      const responseData = response.data;
+      
+      // Cache successful responses (cache the data, not the full response object)
+      if (responseData !== undefined) {
+        try {
+          apiCache.set(url, params, responseData, cacheType);
+          console.log('[API CACHE] Cached response for', url);
+        } catch (cacheError) {
+          console.warn('[API] Cache set failed, but API request succeeded:', cacheError.message);
+          // Continue without caching - the response is still valid
+        }
       }
-    }
-    
-    return response;
-  } catch (error) {
-    // If network error and we have stale cache data, return it as fallback
-    if (error.code === 'NETWORK_ERROR' || error.message.includes('timeout')) {
-      const staleData = apiCache.get(url, params, cacheType);
-      if (staleData) {
-        console.warn('[API FALLBACK] Using stale cache data due to network error');
-        return staleData;
+      
+      return responseData;
+    } catch (error) {
+      // If network error and we have stale cache data, return it as fallback
+      if (error.code === 'NETWORK_ERROR' || error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        console.warn('[API] Network/timeout error, checking for stale cache...');
+        const staleData = apiCache.get(url, params, cacheType);
+        if (staleData) {
+          console.warn('[API FALLBACK] Using stale cache data due to network error');
+          return staleData;
+        }
       }
+      
+      // For 429 errors, let the queue handle retries
+      if (error?.response?.status === 429) {
+        console.warn('[API] Rate limit (429) detected for', url);
+      }
+      
+      throw error;
     }
-    throw error;
+  };
+
+  // Use request queue for rate limiting protection
+  if (useQueue) {
+    return requestQueue.enqueue(makeRequest, url, 0);
   }
+  
+  return makeRequest();
 };
 
 // Enhanced API object with caching methods
@@ -69,21 +95,54 @@ const enhancedAPI = {
   // Original axios instance for non-cached requests
   raw: api,
   
-  // Cached GET request
+  // Cached GET request with queue support
   get: (url, config = {}) => {
-    const { cacheType = CACHE_TYPES.PLAYER_DATA, forceRefresh = false, ...axiosConfig } = config;
-    return cachedRequest({ ...axiosConfig, url, method: 'get' }, cacheType, forceRefresh);
+    const { cacheType = CACHE_TYPES.PLAYER_DATA, forceRefresh = false, useQueue = true, ...axiosConfig } = config;
+    return cachedRequest({ ...axiosConfig, url, method: 'get' }, cacheType, forceRefresh, useQueue);
   },
   
-  // Non-cached requests
-  post: (url, data, config) => api.post(url, data, config),
-  put: (url, data, config) => api.put(url, data, config),
-  delete: (url, config) => api.delete(url, config),
-  patch: (url, data, config) => api.patch(url, data, config),
+  // Non-cached requests (optionally queued)
+  post: (url, data, config = {}) => {
+    const { useQueue = false, ...axiosConfig } = config;
+    if (useQueue) {
+      return requestQueue.enqueue(() => api.post(url, data, axiosConfig), url, 1);
+    }
+    return api.post(url, data, axiosConfig);
+  },
+  put: (url, data, config = {}) => {
+    const { useQueue = false, ...axiosConfig } = config;
+    if (useQueue) {
+      return requestQueue.enqueue(() => api.put(url, data, axiosConfig), url, 1);
+    }
+    return api.put(url, data, axiosConfig);
+  },
+  delete: (url, config = {}) => {
+    const { useQueue = false, ...axiosConfig } = config;
+    if (useQueue) {
+      return requestQueue.enqueue(() => api.delete(url, axiosConfig), url, 1);
+    }
+    return api.delete(url, axiosConfig);
+  },
+  patch: (url, data, config = {}) => {
+    const { useQueue = false, ...axiosConfig } = config;
+    if (useQueue) {
+      return requestQueue.enqueue(() => api.patch(url, data, axiosConfig), url, 1);
+    }
+    return api.patch(url, data, axiosConfig);
+  },
   
   // Cache management methods
   clearCache: (cacheType) => apiCache.clear(cacheType),
-  getCacheStats: () => apiCache.getStats(),
+  clearCacheByPattern: (urlPattern, cacheType) => apiCache.clearByPattern(urlPattern, cacheType),
+  getCacheStats: () => ({
+    cache: apiCache.getStats(),
+    queue: requestQueue.getStats()
+  }),
+  
+  // Request queue methods
+  getQueueStats: () => requestQueue.getStats(),
+  configureQueue: (config) => requestQueue.configure(config),
+  clearQueue: () => requestQueue.clear(),
   
   // Background refresh - updates cache without blocking UI
   backgroundRefresh: async (url, params = {}, cacheType = CACHE_TYPES.PLAYER_DATA) => {
@@ -128,7 +187,7 @@ let isRefreshing = false;
 let failedQueue = [];
 
 enhancedAPI.raw.interceptors.response.use(
-  (response) => response.data, // Automatically return the data property
+  (response) => response, // Return full response object - makeRequest will extract .data
   async (error) => {
     const originalRequest = error.config;
     

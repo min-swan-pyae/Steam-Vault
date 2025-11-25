@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 // Firebase configuration
 const firebaseConfig = {
@@ -14,17 +14,17 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase services
-export const db = getFirestore(app);
+// Initialize Firestore with settings to work in offline mode gracefully
+// Note: Most operations go through backend API. Firestore is only for legacy subscription methods.
+// Direct Firestore access from frontend is minimal - backend handles all database operations.
+let db;
+try {
+  db = getFirestore(app);
+  console.log('[Firebase] Firestore initialized (used minimally - most data via backend API)');
+} catch (error) {
+  console.warn('[Firebase] Firestore initialization warning (expected - app uses backend API):', error.message);
+  db = null;
+}
 
-// Connect to emulators in development (commented out for production)
-// if (import.meta.env.DEV) {
-//   try {
-//     connectFirestoreEmulator(db, 'localhost', 8080);
-//     console.log('Connected to Firebase emulators');
-//   } catch (error) {
-//     console.log('Firebase emulators not available, using production');
-//   }
-// }
-
+export { db };
 export default app;

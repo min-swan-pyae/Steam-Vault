@@ -22,13 +22,11 @@ const router = express.Router();
 
 // Logging middleware
 router.use((req, res, next) => {
-  console.log(`[CS2 ROUTE] ${req.method} ${req.originalUrl}`);
   next();
 });
 
 // Test route
 router.get('/test', (req, res) => {
-  console.log('CS2 test route hit');
   res.json({ 
     message: 'CS2 routes working', 
     timestamp: new Date().toISOString(),
@@ -41,10 +39,20 @@ router.get('/test', (req, res) => {
 // router.post('/setup-gsi', setupGSI);
 router.post('/gsi/:steamId', receiveGSIData);
 
+// Helpful: if someone browses to the GSI endpoint with GET, return instructions (avoid 404 confusion)
+router.get('/gsi/:steamId', (req, res) => {
+  const { steamId } = req.params;
+  res.json({
+    message: 'This endpoint accepts POST requests from CS2 Game State Integration',
+    method: 'POST',
+    expectedPath: `/api/cs2/gsi/${steamId}`,
+    tip: 'If you see this in logs as a GET, it likely came from a browser. CS2 will POST automatically when the cfg is installed and CS2 is running a match.',
+  });
+});
+
 // GSI Test endpoint to validate configuration
 router.get('/gsi-test/:steamId', (req, res) => {
   const { steamId } = req.params;
-  console.log(`[CS2 GSI TEST] Test endpoint called for steamId: ${steamId}`);
   res.json({
     message: 'CS2 GSI endpoint is reachable',
     steamId: steamId,

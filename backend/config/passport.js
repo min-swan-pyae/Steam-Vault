@@ -1,6 +1,7 @@
 import passport from 'passport';
 import { Strategy as SteamStrategy } from 'passport-steam';
 import dotenv from 'dotenv';
+import firebaseService from '../services/firebaseService.js';
 
 dotenv.config();
 
@@ -12,7 +13,6 @@ if (!STEAM_API_KEY) {
   process.exit(1);
 }
 
-console.log('Configuring Passport with Steam API key:', STEAM_API_KEY.substring(0, 4) + '...');
 console.log('Base URL for auth callback:', BASE_URL);
 
 passport.serializeUser((user, done) => {
@@ -42,14 +42,26 @@ const steamStrategy = new SteamStrategy({
     passReqToCallback: true
   },
   function(req, identifier, profile, done) {
-    process.nextTick(function () {
+    process.nextTick(async function () {
       try {
         console.log('Steam profile received:', profile.displayName || profile.id);
-        
-        // Add Steam ID in the format the app expects
+
+        // Normalize steamId
         profile.identifier = identifier;
         profile.steamId = profile.id;
-        
+
+        // Attempt to persist/update user record so displayName is always available
+        try {
+          const avatar = Array.isArray(profile.photos) && profile.photos.length ? profile.photos[profile.photos.length - 1].value : null;
+          await firebaseService.createOrUpdateUser(profile.steamId, {
+            displayName: profile.displayName || 'Unknown Player',
+            avatar,
+            profileUrl: profile._json?.profileurl || null
+          });
+        } catch (persistErr) {
+          console.warn('[AUTH] Failed to upsert user profile during login:', persistErr?.message || persistErr);
+        }
+
         return done(null, profile);
       } catch (error) {
         console.error('Error in Steam strategy callback:', error);
@@ -66,6 +78,5 @@ steamStrategy.error = function(err) {
 
 passport.use(steamStrategy);
 
-console.log('Steam authentication strategy configured successfully');
 
 export default passport; 

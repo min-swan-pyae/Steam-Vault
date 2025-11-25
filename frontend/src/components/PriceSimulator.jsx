@@ -1,17 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { getApiBaseUrl } from '../utils/helpers';
 
 const PriceSimulator = () => {
   const { user, isAuthenticated } = useAuth();
   const [watchlistItems, setWatchlistItems] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [newItemForm, setNewItemForm] = useState({
-    hashName: '',
-    targetPrice: '',
-    appid: '730'
-  });
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+  const API_BASE = getApiBaseUrl();
 
   const loadWatchlistItems = async () => {
     if (!isAuthenticated) return;
@@ -53,28 +49,22 @@ const PriceSimulator = () => {
     }
   };
 
-  const createMockItem = async () => {
-    if (!newItemForm.hashName || !newItemForm.targetPrice) {
-      alert('Please fill in all fields');
-      return;
-    }
-
+  const updatePrice = async (itemId, newPrice) => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/dev/create-mock-item`, {
+      const response = await fetch(`${API_BASE}/api/dev/update-watchlist-price`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newItemForm)
+        body: JSON.stringify({ itemId, newPrice: parseFloat(newPrice) })
       });
 
       const result = await response.json();
       if (result.success) {
-        alert(`✅ ${result.message}`);
-        setNewItemForm({ hashName: '', targetPrice: '', appid: '730' });
+        alert(`✅ Price updated to $${newPrice}`);
         loadWatchlistItems(); // Refresh list
       } else {
-        alert(`❌ ${result.error || 'Failed to create mock item'}`);
+        alert(`❌ ${result.error || 'Failed to update price'}`);
       }
     } catch (error) {
       alert(`❌ Network error: ${error.message}`);
@@ -124,47 +114,16 @@ const PriceSimulator = () => {
 
   return (
     <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-      <h3 className="text-lg font-semibold text-white mb-4">💰 Price Simulator</h3>
-      <p className="text-gray-400 text-sm mb-6">
-        Create mock watchlist items and simulate price drops to test notifications.
-      </p>
-
-      {/* Create New Mock Item */}
-      <div className="mb-6 p-4 bg-gray-700 rounded-lg">
-        <h4 className="text-white font-medium mb-3">Create Mock Watchlist Item</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-          <input
-            type="text"
-            placeholder="Item Name (e.g., AK-47 | Redline)"
-            value={newItemForm.hashName}
-            onChange={(e) => setNewItemForm(prev => ({ ...prev, hashName: e.target.value }))}
-            className="px-3 py-2 bg-gray-600 text-white rounded border border-gray-500 focus:border-blue-500"
-          />
-          <input
-            type="number"
-            step="0.01"
-            placeholder="Target Price ($)"
-            value={newItemForm.targetPrice}
-            onChange={(e) => setNewItemForm(prev => ({ ...prev, targetPrice: e.target.value }))}
-            className="px-3 py-2 bg-gray-600 text-white rounded border border-gray-500 focus:border-blue-500"
-          />
-          <select
-            value={newItemForm.appid}
-            onChange={(e) => setNewItemForm(prev => ({ ...prev, appid: e.target.value }))}
-            className="px-3 py-2 bg-gray-600 text-white rounded border border-gray-500 focus:border-blue-500"
-          >
-            <option value="730">CS2</option>
-            <option value="570">Dota 2</option>
-            <option value="440">TF2</option>
-          </select>
-        </div>
-        <button
-          onClick={createMockItem}
-          disabled={loading}
-          className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded transition-colors"
-        >
-          ➕ Create Mock Item
-        </button>
+      <h3 className="text-lg font-semibold text-white mb-4">💰 Price Alert Simulator</h3>
+      <div className="mb-6 p-4 bg-blue-900/20 border border-blue-800 rounded-lg">
+        <h4 className="text-blue-300 font-medium text-sm mb-2">ℹ️ How to Test Price Alerts</h4>
+        <ol className="text-gray-300 text-xs space-y-1 list-decimal list-inside">
+          <li>Add items to your watchlist from the <strong>Marketplace</strong> page</li>
+          <li>Items will appear below with their current and target prices</li>
+          <li>Use <strong>"Update Price"</strong> to manually set a new price and update the database</li>
+          <li>Use <strong>"Trigger Alert"</strong> to instantly simulate a price drop notification</li>
+          <li>In production, price checks run every 3 hours automatically</li>
+        </ol>
       </div>
 
       {/* Existing Items */}
@@ -180,8 +139,9 @@ const PriceSimulator = () => {
         </div>
 
         {watchlistItems.length === 0 ? (
-          <div className="text-gray-400 text-sm text-center py-4 border border-gray-600 rounded">
-            No watchlist items. Create one above to start testing!
+          <div className="text-gray-400 text-sm text-center py-8 border border-gray-600 rounded">
+            <p className="mb-2">No watchlist items found.</p>
+            <p className="text-xs">Add items from the <a href="/marketplace" className="text-blue-400 hover:text-blue-300">Marketplace</a> page to start testing!</p>
           </div>
         ) : (
           <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -196,7 +156,7 @@ const PriceSimulator = () => {
                     <p className="text-gray-400 text-xs">
                       Current: ${item.currentPrice?.toFixed(2) || 'N/A'}
                       {item.currentPrice <= item.targetPrice && 
-                        <span className="text-green-400 ml-2">🎯 Alert Triggered!</span>
+                        <span className="text-yellow-400 ml-2">⚠️ Current Price is below the Target Price</span>
                       }
                     </p>
                   </div>
@@ -221,21 +181,25 @@ const PriceSimulator = () => {
                       const input = document.getElementById(`price-${item.id}`);
                       const newPrice = parseFloat(input.value);
                       if (newPrice > 0) {
-                        simulatePriceDrop(item.id, newPrice);
+                        updatePrice(item.id, newPrice);
                         input.value = '';
+                      } else {
+                        alert('Please enter a valid price');
                       }
                     }}
                     disabled={loading}
-                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded text-sm transition-colors"
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded text-sm transition-colors whitespace-nowrap"
+                    title="Update the currentPrice in database"
                   >
                     💰 Update Price
                   </button>
                   <button
                     onClick={() => simulatePriceDrop(item.id, item.targetPrice - 0.01)}
                     disabled={loading}
-                    className="px-3 py-1 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white rounded text-sm transition-colors"
+                    className="px-3 py-1 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 text-white rounded text-sm transition-colors whitespace-nowrap"
+                    title="Trigger price alert notification immediately"
                   >
-                    📉 Trigger Alert
+                    🔔 Trigger Alert
                   </button>
                 </div>
               </div>

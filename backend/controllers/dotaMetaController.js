@@ -29,21 +29,16 @@ export const getProPlayersLive = asyncHandler(async (req, res) => {
   const cacheKey = 'pro_players_live';
   const cached = cacheService.get(CACHE_TYPES.META_DATA, cacheKey);
   if (cached) {
-    console.log('DEBUG - Returning cached pro players data');
     return res.json(cached);
   }
 
   try {
-    console.log('DEBUG - Fetching pro players from Steam API');
 
     const notablePlayers = players;
 
     // Get live league games from Steam API
-    console.log('DEBUG - Calling OpenDota API with URL: /live');
     const liveGamesRes = await steamService.openDotaApi.get('/live');
     
-    console.log('DEBUG - OpenDota API response status:', liveGamesRes.status);
-    console.log('DEBUG - OpenDota API response success:', !!liveGamesRes.data);
     
     const liveGames = liveGamesRes.data || [];
     console.log('DEBUG - Found', liveGames.length, 'live games');
@@ -101,7 +96,6 @@ export const getProPlayersLive = asyncHandler(async (req, res) => {
       }
     }
     
-    console.log('DEBUG - Found', proPlayersLive.length, 'pro players in live games');
 
     // Fallback to public matches if no pro players found
     const publicData = [];

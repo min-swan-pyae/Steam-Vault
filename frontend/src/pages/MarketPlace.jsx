@@ -218,6 +218,19 @@ export default function MarketPlace() {
   const [loading, setLoading] = useState(true);
   const [priceFilterInfo, setPriceFilterInfo] = useState(null); // Track filtered items info
   const [watchlist, setWatchlist] = useState([]);
+  // Watchlist pagination
+  const [watchlistPage, setWatchlistPage] = useState(1);
+  const [watchlistPageSize, setWatchlistPageSize] = useState(10);
+  const [watchlistShowAll, setWatchlistShowAll] = useState(false);
+
+  // Keep watchlist page in bounds when data or page size changes
+  useEffect(() => {
+    const wlTotal = watchlist?.length || 0;
+    const wlMaxPage = Math.max(1, Math.ceil(wlTotal / watchlistPageSize));
+    if (watchlistPage > wlMaxPage) {
+      setWatchlistPage(wlMaxPage);
+    }
+  }, [watchlist, watchlistPage, watchlistPageSize]);
   const [categories, setCategories] = useState({});
   const [exterior, setExterior] = useState('');
   const [stattrak, setStattrak] = useState(false);
@@ -267,38 +280,6 @@ export default function MarketPlace() {
         
         setWatchlist(watchResult?.items || []);
         setCategories(catResult?.categories || {});
-        
-        // Only perform search on very first load or retry, NOT on filter changes
-        if (!hasInitiallyLoaded || retryCount > 0) {
-          try {
-            const filters = appid === 570 ? {} : {};
-            const res = await marketApi.searchBulk({ 
-              appid, 
-              q: '', 
-              filters,
-              start: 0,
-              pageSize,
-              sortBy: 'popularity'
-            });
-            
-            if (res.results && mounted) {
-              setItems(res.results);
-              setTotal(res.total);
-              setPage(1);
-              setHasInitiallyLoaded(true);
-            }
-          } catch (searchErr) {
-            console.error('Initial search failed:', searchErr);
-            if (mounted) {
-              // Don't show error for rate limits or temporary Steam API issues during initial load
-              if (searchErr.message?.includes('429') || searchErr.message?.includes('rate limit')) {
-                console.log('Steam API rate limited during initial load, will retry later');
-              } else {
-                setError('Failed to load marketplace data. Steam API may be temporarily unavailable.');
-              }
-            }
-          }
-        }
       } catch (err) {
         console.error('Failed to load initial data:', err);
         if (mounted) {
@@ -318,59 +299,90 @@ export default function MarketPlace() {
 
 
 
-  const fetchPage = useCallback(async (pageNum, forceRefresh = false) => {
-    console.log(`[FETCH PAGE] Starting fetch for page ${pageNum}, query: "${query}", forceRefresh: ${forceRefresh}`);
+  // Track the last executed search to enable reliable retries and preloading
+  const lastSearchRef = useRef(null);
+
+  const fetchPage = useCallback(async (
+    pageNum,
+    opts = {}
+  ) => {
+    // Options allow passing explicit values to avoid stale state
+    const {
+      forceRefresh = false,
+      query: queryOverride,
+      appid: appidOverride,
+      subCategory: subCategoryOverride,
+      dotaHero: dotaHeroOverride,
+      dotaRarity: dotaRarityOverride,
+      dotaType: dotaTypeOverride,
+      exterior: exteriorOverride,
+      stattrak: stattrakOverride,
+      souvenir: souvenirOverride,
+      pageSize: pageSizeOverride,
+      sortBy: sortByOverride,
+      minPrice: minPriceOverride,
+      maxPrice: maxPriceOverride
+    } = opts;
+
+    // Effective values for this invocation
+    const effAppid = parseInt(appidOverride ?? appid);
+    const effQuery = (queryOverride ?? query ?? '').trim();
+    const effSubCategory = subCategoryOverride ?? subCategory ?? null;
+    const effDotaHero = effAppid === 570 ? (dotaHeroOverride ?? dotaHero ?? '') : 'n/a';
+    const effDotaRarity = effAppid === 570 ? (dotaRarityOverride ?? dotaRarity ?? '') : 'n/a';
+    const effDotaType = effAppid === 570 ? (dotaTypeOverride ?? dotaType ?? '') : 'n/a';
+    const effExterior = exteriorOverride ?? exterior ?? '';
+    const effStattrak = Boolean(stattrakOverride ?? stattrak);
+    const effSouvenir = Boolean(souvenirOverride ?? souvenir);
+    const effPageSize = pageSizeOverride ?? pageSize;
+    const effSortBy = sortByOverride ?? sortBy;
+  const effMinPrice = (minPriceOverride ?? minPrice) || undefined;
+  const effMaxPrice = (maxPriceOverride ?? maxPrice) || undefined;
+
     setLoading(true);
     setError(null);
     
     try {
       // Generate cache key that properly isolates different search contexts
       const currentCacheKey = JSON.stringify({
-        query: query.trim(),
-        appid,
-        subCategory: subCategory || 'all', // Ensure different categories have different keys
-        // Include Dota2 combination filters
-        dotaHero: appid === 570 ? dotaHero || 'all' : 'n/a',
-        dotaRarity: appid === 570 ? dotaRarity || 'all' : 'n/a', 
-        dotaType: appid === 570 ? dotaType || 'all' : 'n/a',
-        exterior,
-        stattrak,
-        souvenir,
-        pageSize,
-        sortBy,
-        minPrice: minPrice || undefined,
-        maxPrice: maxPrice || undefined
+        query: effQuery,
+        appid: effAppid,
+        subCategory: effSubCategory || 'all',
+        dotaHero: effAppid === 570 ? (effDotaHero || 'all') : 'n/a',
+        dotaRarity: effAppid === 570 ? (effDotaRarity || 'all') : 'n/a', 
+        dotaType: effAppid === 570 ? (effDotaType || 'all') : 'n/a',
+        exterior: effExterior,
+        stattrak: effStattrak,
+        souvenir: effSouvenir,
+        pageSize: effPageSize,
+        sortBy: effSortBy,
+        minPrice: effMinPrice,
+        maxPrice: effMaxPrice
       });
+      const pageKey = `${currentCacheKey}|p=${pageNum}`;
       
       // Only clear cache if the search context fundamentally changed
       const searchContextChanged = currentCacheKey !== cacheKey;
       if (searchContextChanged) {
-        console.log('Search context changed. Old:', cacheKey, 'New:', currentCacheKey);
-        
-        // Clear cache when context changes, but preserve it for simple navigation
-        if (forceRefresh || !cacheKey) {
-          console.log('Search context changed - clearing cache to prevent data collision');
-          setPageCache(new Map());
-        }
+        // No need to nuke the whole cache now that we key by context+page
         setCacheKey(currentCacheKey);
       }
       
       // Check if this page is already cached (unless force refresh)
-      const cachedPage = pageCache.get(pageNum);
+      const cachedPage = pageCache.get(pageKey);
       if (cachedPage && !forceRefresh) {
         // Verify the cached page matches current search context
         const cacheStillValid = currentCacheKey === cacheKey || !searchContextChanged;
         if (cacheStillValid) {
-          console.log(`Loading page ${pageNum} from cache (instant!)`);
           setItems(cachedPage.items);
           setTotal(cachedPage.total);
           setPage(pageNum);
           
           // Set price filter info when loading from cache
-          if (minPrice || maxPrice) {
+          if (effMinPrice || effMaxPrice) {
             setPriceFilterInfo({
-              minPrice,
-              maxPrice,
+              minPrice: effMinPrice,
+              maxPrice: effMaxPrice,
               hasPriceFilter: true
             });
           } else {
@@ -380,47 +392,45 @@ export default function MarketPlace() {
           setLoading(false);
           return;
         } else {
-          console.log(`Cache for page ${pageNum} is stale, fetching fresh data`);
         }
       }
       
-      console.log('Fetching page:', pageNum, 'from API');
       
-      const filters = appid === 570
+      const filters = effAppid === 570
         ? { 
             // For Dota2, use combination filtering with separate hero, type, and rarity
-            ...(dotaHero ? { hero: dotaHero } : {}),
-            ...(dotaType ? { type: dotaType } : {}),
-            ...(dotaRarity ? { rarity: dotaRarity } : {}),
+            ...(effDotaHero ? { hero: effDotaHero } : {}),
+            ...(effDotaType ? { type: effDotaType } : {}),
+            ...(effDotaRarity ? { rarity: effDotaRarity } : {}),
             // Legacy support: if using old subCategory system, convert it
-            ...(subCategory && !dotaHero && !dotaType && !dotaRarity ? (() => {
-              if (DOTA_CATEGORIES.heroes.subcategories.some(h => h.value === subCategory)) {
+            ...(effSubCategory && !effDotaHero && !effDotaType && !effDotaRarity ? (() => {
+              if (DOTA_CATEGORIES.heroes.subcategories.some(h => h.value === effSubCategory)) {
                 return { hero: subCategory };
-              } else if (DOTA_CATEGORIES.types.subcategories.some(t => t.value === subCategory)) {
+              } else if (DOTA_CATEGORIES.types.subcategories.some(t => t.value === effSubCategory)) {
                 return { type: subCategory };
-              } else if (DOTA_CATEGORIES.rarities.subcategories.some(r => r.value === subCategory)) {
+              } else if (DOTA_CATEGORIES.rarities.subcategories.some(r => r.value === effSubCategory)) {
                 return { rarity: subCategory };
               }
               return {};
             })() : {})
           }
         : { 
-            typeTag: subCategory || undefined, 
-            exterior: exterior || undefined, 
-            stattrak: stattrak || undefined, 
-            souvenir: souvenir || undefined 
+            typeTag: effSubCategory || undefined, 
+            exterior: effExterior || undefined, 
+            stattrak: effStattrak || undefined, 
+            souvenir: effSouvenir || undefined 
           };
 
-      const start = (pageNum - 1) * pageSize;
+      const start = (pageNum - 1) * effPageSize;
       const res = await marketApi.searchBulk({ 
-        appid, 
-        q: query, 
+        appid: effAppid, 
+        q: effQuery, 
         filters,
         start,
-        pageSize,
-        sortBy,
-        minPrice: minPrice || undefined,
-        maxPrice: maxPrice || undefined,
+        pageSize: effPageSize,
+        sortBy: effSortBy,
+        minPrice: effMinPrice,
+        maxPrice: effMaxPrice,
         bustCache: forceRefresh // Bust cache when forcing refresh
       });
 
@@ -430,10 +440,10 @@ export default function MarketPlace() {
         setError(null);
         
         // Show price filter info when no results and price filter is active
-        if (minPrice || maxPrice) {
+        if (effMinPrice || effMaxPrice) {
           setPriceFilterInfo({
-            minPrice,
-            maxPrice,
+            minPrice: effMinPrice,
+            maxPrice: effMaxPrice,
             hasPriceFilter: true,
             steamApiEmpty: true
           });
@@ -441,20 +451,16 @@ export default function MarketPlace() {
           setPriceFilterInfo(null);
         }
       } else {
-        console.log(`[FETCH PAGE] Loaded ${res.results.length} items for page ${pageNum} from API`);
-        console.log(`[FETCH PAGE] Total items: ${res.total}`);
-        console.log(`[FETCH PAGE] Current filters:`, filters);
-        console.log(`[FETCH PAGE] First item name:`, res.results[0]?.name);
         
-        // Set items directly from Steam API without client-side filtering
+        // Set items directly from Steam API
         setItems(res.results);
         setTotal(res.total);
         
         // Show price filter info when price filtering is active
-        if (minPrice || maxPrice) {
+        if (effMinPrice || effMaxPrice) {
           setPriceFilterInfo({
-            minPrice,
-            maxPrice,
+            minPrice: effMinPrice,
+            maxPrice: effMaxPrice,
             hasPriceFilter: true
           });
         } else {
@@ -464,7 +470,7 @@ export default function MarketPlace() {
         // Cache this page for instant access later
         setPageCache(prev => {
           const newCache = new Map(prev);
-          newCache.set(pageNum, { 
+          newCache.set(pageKey, { 
             items: res.results, 
             total: res.total,
             timestamp: Date.now() 
@@ -481,6 +487,23 @@ export default function MarketPlace() {
       }
       
       setPage(pageNum);
+      // Persist last search used successfully
+      lastSearchRef.current = {
+        pageNum,
+        query: effQuery,
+        appid: effAppid,
+        subCategory: effSubCategory,
+        dotaHero: effDotaHero,
+        dotaRarity: effDotaRarity,
+        dotaType: effDotaType,
+        exterior: effExterior,
+        stattrak: effStattrak,
+        souvenir: effSouvenir,
+        pageSize: effPageSize,
+        sortBy: effSortBy,
+        minPrice: effMinPrice,
+        maxPrice: effMaxPrice
+      };
       
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -493,7 +516,9 @@ export default function MarketPlace() {
         // Clear this page from cache so retries will refetch instead of showing cached error
         setPageCache(prev => {
           const newCache = new Map(prev);
-          newCache.delete(pageNum);
+          const currentCacheKey = cacheKey;
+          const pageKey = `${currentCacheKey}|p=${pageNum}`;
+          newCache.delete(pageKey);
           return newCache;
         });
       } else {
@@ -505,12 +530,15 @@ export default function MarketPlace() {
   }, [appid, subCategory, dotaHero, dotaRarity, dotaType, exterior, stattrak, souvenir, pageSize, pageCache, cacheKey, sortBy, minPrice, maxPrice]);
 
   const handleRetry = useCallback(() => {
-    console.log('[MARKETPLACE] Retry button clicked, clearing error and retrying');
     setError(null);
     setRetryCount(prev => prev + 1);
-    // Force refresh the current page to bypass any cache
-    fetchPage(page, true);
-  }, [page, fetchPage]);
+    const last = lastSearchRef.current;
+    if (last) {
+      fetchPage(last.pageNum ?? page, { ...last, forceRefresh: true });
+    } else {
+      fetchPage(page, { forceRefresh: true, query, appid, subCategory, dotaHero, dotaRarity, dotaType, exterior, stattrak, souvenir, pageSize, sortBy, minPrice, maxPrice });
+    }
+  }, [page, fetchPage, query, appid, subCategory, dotaHero, dotaRarity, dotaType, exterior, stattrak, souvenir, pageSize, sortBy, minPrice, maxPrice]);
 
   // Background preloading for smoother navigation
   const preloadAdjacentPages = useCallback(async (currentPage) => {
@@ -518,9 +546,10 @@ export default function MarketPlace() {
     const nextPage = currentPage + 1;
     
     // Only preload if next page exists and isn't cached
-    if (nextPage <= maxPages && !pageCache.has(nextPage) && !loading) {
+    const currentCacheKey = cacheKey;
+    const pageKey = `${currentCacheKey}|p=${nextPage}`;
+    if (nextPage <= maxPages && !pageCache.has(pageKey) && !loading) {
       try {
-        console.log(`Preloading page ${nextPage} in background...`);
         
         const filters = appid === 570
           ? { 
@@ -562,7 +591,7 @@ export default function MarketPlace() {
         if (res.results && res.results.length > 0) {
           setPageCache(prev => {
             const newCache = new Map(prev);
-            newCache.set(nextPage, { 
+            newCache.set(pageKey, { 
               items: res.results, 
               total: res.total,
               timestamp: Date.now() 
@@ -576,13 +605,11 @@ export default function MarketPlace() {
             
             return newCache;
           });
-          console.log(`Page ${nextPage} preloaded successfully!`);
         }
       } catch (error) {
-        console.log(`Failed to preload page ${nextPage}:`, error.message);
       }
     }
-  }, [appid, query, subCategory, exterior, stattrak, souvenir, pageSize, total, pageCache, loading]);
+  }, [appid, query, subCategory, exterior, stattrak, souvenir, pageSize, total, pageCache, loading, cacheKey]);
 
   // Trigger preloading after page loads
   useEffect(() => {
@@ -592,61 +619,102 @@ export default function MarketPlace() {
     }
   }, [page, loading, total, preloadAdjacentPages]);
 
-  // Initial load when component mounts (only once) - separate from filter-dependent fetchPage
-  const [hasInitialLoad, setHasInitialLoad] = useState(false);
-  const performInitialLoad = useCallback(async () => {
-    if (hasInitialLoad || items.length > 0 || loading) return;
-    setHasInitialLoad(true);
-    setLoading(true);
-    try {
-      // Perform initial API call without using fetchPage to avoid dependency issues
-      const filters = appid === 570 ? {} : {};
-      const res = await marketApi.searchBulk({ 
-        appid, 
-        q: '', 
-        filters,
-        start: 0,
-        pageSize,
-        sortBy: 'popularity'
-      });
-      
-      if (res.results) {
-        setItems(res.results);
-        setTotal(res.total);
-        setPage(1);
-      }
-    } catch (err) {
-      console.error('Initial load failed:', err);
-      setError('Failed to load marketplace data');
-    } finally {
-      setLoading(false);
-    }
-  }, [hasInitialLoad, items.length, loading, appid, pageSize]);
+  // Removed duplicate initial load that could conflict with manual/URL-based searches
 
+  // Initial trending load on first visit (no URL params, no active search)
   useEffect(() => {
-    performInitialLoad();
-  }, [performInitialLoad]);
+    // Only run once per mount
+    if (hasInitiallyLoaded) return;
 
-  const addToWatchlist = async (item) => {
+    // Skip if navigated here with URL params (handled by auto-search effect)
+    const hasUrlParams = Boolean(searchParams.get('search') || searchParams.get('appid') || searchParams.get('segment'));
+    if (hasUrlParams) return;
+
+    // Don't interfere with an in-flight manual/auto search
+    if (isAutoSearching || isSearching) return;
+
+    // If we already have items (e.g., from cache restoration), skip
+    if (items && items.length > 0) return;
+
+    setHasInitiallyLoaded(true);
+
+    // Show trending by using empty query and default sort (popularity)
+    fetchPage(1, {
+      forceRefresh: false,
+      query: '',
+      appid,
+      subCategory: null,
+      dotaHero: '',
+      dotaRarity: '',
+      dotaType: '',
+      exterior: '',
+      stattrak: false,
+      souvenir: false,
+      pageSize,
+      sortBy,
+      minPrice: undefined,
+      maxPrice: undefined
+    });
+  }, [hasInitiallyLoaded, searchParams, isAutoSearching, isSearching, items, fetchPage, appid, pageSize, sortBy]);
+
+  // Target price modal state
+  const [targetPriceModal, setTargetPriceModal] = useState({ open: false, item: null, targetPrice: '' });
+
+  const addToWatchlist = (item) => {
     if (!steamId) return alert('Please login with Steam to manage your watchlist');
     
+    // Check watchlist limit
+    if (watchlist.length >= 30) {
+      alert('Watchlist limit reached. Maximum 30 items allowed.');
+      return;
+    }
+    
+    // Open modal to get target price
+    const suggestedPrice = item.currentPrice || parseFloat(item.salePriceText?.replace('$', '')) || 0;
+    setTargetPriceModal({
+      open: true,
+      item,
+      targetPrice: suggestedPrice > 0 ? (suggestedPrice * 0.9).toFixed(2) : '' // Suggest 10% below current
+    });
+  };
+
+  const confirmAddToWatchlist = async () => {
+    const { item, targetPrice } = targetPriceModal;
+    const parsedTarget = parseFloat(targetPrice);
+    
+    if (!parsedTarget || parsedTarget <= 0) {
+      alert('Please enter a valid target price greater than $0');
+      return;
+    }
+    
     try {
-      console.log('[addToWatchlist] item:', item);
+      // Extract currentPrice from salePriceText if available
+      let currentPrice = item.currentPrice;
+      if (!currentPrice && item.salePriceText) {
+        const match = item.salePriceText.match(/\$?([0-9,]+\.?[0-9]*)/);
+        if (match) {
+          currentPrice = parseFloat(match[1].replace(/,/g, ''));
+        }
+      }
+      
       await marketApi.upsertWatchItem(steamId, {
         appid: item.appid || DEFAULT_APPID,
         hashName: item.hashName,
         name: item.name,
         iconUrl: item.iconUrl,
-        // Include the same price data that's displayed in the marketplace
+        targetPrice: parsedTarget,
         salePriceText: item.salePriceText,
         sellPriceText: item.sellPriceText,
-        currentPrice: item.currentPrice
+        currentPrice: currentPrice || parsedTarget
       });
       const wl = await marketApi.getWatchlist(steamId);
       setWatchlist(wl.items || []);
+      setTargetPriceModal({ open: false, item: null, targetPrice: '' });
+      alert(`Added to watchlist! You'll be notified when price drops to $${parsedTarget.toFixed(2)} or below.`);
     } catch (error) {
       console.error('Failed to add item to watchlist:', error);
-      alert('Failed to add item to watchlist. Please try again.');
+      const msg = error?.response?.data?.message || 'Failed to add item to watchlist';
+      alert(msg);
     }
   };
 
@@ -680,16 +748,12 @@ export default function MarketPlace() {
     
     // Prevent double-clicks and multiple submissions
     if (isSearching || loading || isAutoSearching) {
-      console.log('[HANDLE SEARCH] Search already in progress, ignoring duplicate click');
       return;
     }
     
-    console.log('[HANDLE SEARCH] Manual search triggered by:', e?.type, e?.target?.tagName, e);
-    console.log('[HANDLE SEARCH] Search query:', query);
     
     // Clear any existing URL parameters when doing manual search
     if (searchParams.get('search') || searchParams.get('appid')) {
-      console.log('[HANDLE SEARCH] Clearing URL parameters for manual search');
       navigate('/marketplace', { replace: true });
     }
     
@@ -698,17 +762,31 @@ export default function MarketPlace() {
     setError(null); // Clear any existing errors for manual search
     
     try {
-      await fetchPage(1, true); // Force refresh for new search
+      await fetchPage(1, {
+        forceRefresh: true,
+        query,
+        appid,
+        subCategory,
+        dotaHero,
+        dotaRarity,
+        dotaType,
+        exterior,
+        stattrak,
+        souvenir,
+        pageSize,
+        sortBy,
+        minPrice,
+        maxPrice
+      });
     } catch (error) {
       console.error('[HANDLE SEARCH] Manual search failed:', error);
       setError('Search failed. Please try again.');
     } finally {
       setIsSearching(false);
     }
-  }, [fetchPage, isSearching, loading, isAutoSearching, query, searchParams, navigate]);
+  }, [fetchPage, isSearching, loading, isAutoSearching, query, searchParams, navigate, appid, subCategory, dotaHero, dotaRarity, dotaType, exterior, stattrak, souvenir, pageSize, sortBy, minPrice, maxPrice]);
 
   const handleCategoryChange = useCallback((newCategory) => {
-    console.log('[CATEGORY CHANGE] Setting category to:', newCategory);
     setSubCategory(newCategory);
     // Don't auto-search, wait for user to click Search button
   }, []);
@@ -836,76 +914,132 @@ export default function MarketPlace() {
   // Handle URL parameters and auto-trigger search (e.g., from notifications)
   useEffect(() => {
     const urlSearch = searchParams.get('search');
+    const urlHash = searchParams.get('hash'); // Exact item hash for specific match
     const urlAppid = searchParams.get('appid');
-    const currentUrl = `${urlSearch || ''}_${urlAppid || ''}`;
+    const urlSegment = searchParams.get('segment');
+    const currentUrl = `${urlSearch || ''}_${urlHash || ''}_${urlAppid || ''}_${urlSegment || ''}`;
     
     // Skip if we've already processed these exact URL parameters
-    if (!urlSearch && !urlAppid) return;
+    if (!urlSearch && !urlHash && !urlAppid && !urlSegment) return;
     if (processedUrl === currentUrl) {
-      console.log('[MARKETPLACE] URL parameters already processed, skipping:', currentUrl);
       return;
     }
     
     // Don't interfere with manual searches
     if (isSearching) {
-      console.log('[MARKETPLACE] Manual search in progress, skipping auto-search');
       return;
     }
     
-    console.log('[MARKETPLACE] Processing new URL parameters:', { urlSearch, urlAppid });
     setProcessedUrl(currentUrl);
     setIsAutoSearching(true);
     
-    // Set appid first if it's different
+    // Set appid first if it's different (explicit or inferred via segment)
     if (urlAppid && parseInt(urlAppid) !== appid) {
-      console.log('[MARKETPLACE] Setting appid from URL:', parseInt(urlAppid));
       setAppid(parseInt(urlAppid));
+    } else if (urlSegment && !urlAppid && appid !== 730) {
+      // For now, all known segments map to CS2 (appid 730)
+      setAppid(730);
     }
     
-    // Handle search parameter
-    if (urlSearch) {
-      const decodedSearch = decodeURIComponent(urlSearch.replace(/\+/g, ' '));
-      console.log('[MARKETPLACE] Setting query from URL:', decodedSearch);
+    // Handle exact hash search (from notifications) - takes precedence
+    const searchQuery = urlHash || urlSearch;
+    const isExactHashSearch = !!urlHash;
+    
+    // Handle explicit item search parameter (takes precedence over segment)
+    if (searchQuery) {
+      const decodedSearch = decodeURIComponent(searchQuery.replace(/\+/g, ' '));
       
-      // Set the query state
-      setQuery(decodedSearch);
+      // For exact hash searches, parse and auto-apply filters
+      let autoFilters = {
+        exterior: '',
+        stattrak: false,
+        souvenir: false
+      };
+      
+      if (isExactHashSearch) {
+        // Extract exterior from hash name (e.g., "MP7 | Bloodsport (Minimal Wear)")
+        const exteriorMatch = decodedSearch.match(/\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)/i);
+        if (exteriorMatch) {
+          const exteriorDisplayValue = exteriorMatch[1];
+          // Map display names to API format (lowercase, no spaces/hyphens)
+          const exteriorApiMap = {
+            'Factory New': 'factorynew',
+            'Minimal Wear': 'minimalwear',
+            'Field-Tested': 'fieldtested',
+            'Well-Worn': 'wellworn',
+            'Battle-Scarred': 'battlescarred'
+          };
+          const exteriorValue = exteriorApiMap[exteriorDisplayValue] || exteriorDisplayValue.toLowerCase().replace(/[\s-]/g, '');
+          setExterior(exteriorValue);
+          autoFilters.exterior = exteriorValue;
+        }
+        
+        // Check for StatTrak
+        if (decodedSearch.includes('StatTrak™')) {
+          setStattrak(true);
+          autoFilters.stattrak = true;
+        }
+        
+        // Check for Souvenir
+        if (decodedSearch.includes('Souvenir')) {
+          setSouvenir(true);
+          autoFilters.souvenir = true;
+        }
+        
+        // Remove quality indicators from search query for better results
+        const cleanQuery = decodedSearch
+          .replace(/\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)/gi, '')
+          .replace(/StatTrak™\s*/gi, '')
+          .replace(/Souvenir\s*/gi, '')
+          .trim();
+        
+        setQuery(cleanQuery);
+      } else {
+        setQuery(decodedSearch);
+      }
+      
       setPage(1);
-      setError(null); // Clear any existing errors
+      setError(null);
       
       // Execute search with a stable function reference to avoid infinite loops
       const executeSearch = async () => {
-        console.log('[MARKETPLACE] Executing auto-search for:', decodedSearch);
         
         try {
-          // Build the search directly instead of relying on fetchPage callback
+          // Use unified fetchPage to ensure consistent cache and retry state
           const targetAppid = urlAppid ? parseInt(urlAppid) : appid;
-          const filters = targetAppid === 570 ? {} : {};
+          const searchQuery = isExactHashSearch 
+            ? decodedSearch
+                .replace(/\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)/gi, '')
+                .replace(/StatTrak™\s*/gi, '')
+                .replace(/Souvenir\s*/gi, '')
+                .trim()
+            : decodedSearch;
           
-          setLoading(true);
-          const res = await marketApi.searchBulk({ 
-            appid: targetAppid, 
-            q: decodedSearch, 
-            filters,
-            start: 0,
+          await fetchPage(1, {
+            forceRefresh: true,
+            query: searchQuery,
+            appid: targetAppid,
+            subCategory: null,
+            dotaHero: '',
+            dotaRarity: '',
+            dotaType: '',
+            exterior: autoFilters.exterior,
+            stattrak: autoFilters.stattrak,
+            souvenir: autoFilters.souvenir,
             pageSize,
             sortBy: 'popularity',
-            bustCache: true // Force fresh data for notification-based searches
+            minPrice: undefined,
+            maxPrice: undefined
           });
           
-          if (res.results) {
-            setItems(res.results);
-            setTotal(res.total);
-            console.log('[MARKETPLACE] Auto-search completed successfully:', res.results.length, 'items');
-            
-            // Clear URL parameters after successful auto-search
-            console.log('[MARKETPLACE] Clearing URL parameters after successful auto-search');
+          // If fetchPage succeeded, lastSearchRef will be updated
+          if (lastSearchRef.current && lastSearchRef.current.query === searchQuery && lastSearchRef.current.appid === targetAppid) {
             navigate('/marketplace', { replace: true });
           }
         } catch (error) {
           console.error('[MARKETPLACE] Auto-search failed:', error);
           setError('Failed to search for item from notification');
         } finally {
-          setLoading(false);
           setIsAutoSearching(false);
         }
       };
@@ -913,6 +1047,53 @@ export default function MarketPlace() {
       // Use a timeout to ensure state updates are applied
       const timer = setTimeout(executeSearch, 300);
       return () => clearTimeout(timer);
+    } else if (urlSegment) {
+      // Map segment to subCategory/category context
+      const segmentMap = {
+        knife: 'tag_CSGO_Type_Knife'
+        // future segments can be added here
+      };
+      const targetSubCategory = segmentMap[urlSegment.toLowerCase()];
+      if (targetSubCategory) {
+        // Clear any existing search query for segment browsing
+        setQuery('');
+        setSubCategory(targetSubCategory);
+        setPage(1);
+        setError(null);
+        const executeSegmentLoad = async () => {
+          try {
+            await fetchPage(1, {
+              forceRefresh: true,
+              query: '',
+              appid: 730,
+              subCategory: targetSubCategory,
+              dotaHero: '',
+              dotaRarity: '',
+              dotaType: '',
+              exterior: '',
+              stattrak: false,
+              souvenir: false,
+              pageSize,
+              sortBy: 'popularity',
+              minPrice: undefined,
+              maxPrice: undefined
+            });
+            if (lastSearchRef.current && lastSearchRef.current.subCategory === targetSubCategory) {
+              navigate('/marketplace', { replace: true });
+            }
+          } catch (error) {
+            console.error('[MARKETPLACE] Segment load failed:', error);
+            setError('Failed to load marketplace segment');
+          } finally {
+            setIsAutoSearching(false);
+          }
+        };
+        const t = setTimeout(executeSegmentLoad, 250);
+        return () => clearTimeout(t);
+      } else {
+        console.warn('[MARKETPLACE] Unknown segment parameter value:', urlSegment);
+        setIsAutoSearching(false);
+      }
     } else {
       setIsAutoSearching(false);
     }
@@ -943,33 +1124,35 @@ export default function MarketPlace() {
               </p>
             )} */}
           </div>
-          <form onSubmit={handleSearch} className="w-full md:w-auto flex flex-wrap gap-3 items-center">
-            <select value={appid} onChange={e => handleAppChange(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+          <form onSubmit={handleSearch} className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 items-stretch">
+            <select value={appid} onChange={e => handleAppChange(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
               <option value={730}>CS2</option>
               <option value={570}>Dota 2</option>
             </select>
             
             {/* CS2 category dropdown */}
             {appid === 730 && (
-              <SubCategorySelect appid={appid} value={subCategory} onChange={handleCategoryChange} />
+              <div className="w-full">
+                <SubCategorySelect appid={appid} value={subCategory} onChange={handleCategoryChange} />
+              </div>
             )}
             
             {/* Dota2 combination filters */}
             {appid === 570 && (
               <>
-                <select value={dotaHero} onChange={e => setDotaHero(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                <select value={dotaHero} onChange={e => setDotaHero(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                   <option value="">Hero</option>
                   {DOTA_CATEGORIES.heroes.subcategories.map(hero => (
                     <option key={hero.value} value={hero.value}>{hero.label}</option>
                   ))}
                 </select>
-                <select value={dotaType} onChange={e => setDotaType(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                <select value={dotaType} onChange={e => setDotaType(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                   <option value="">Type</option>
                   {DOTA_CATEGORIES.types.subcategories.map(type => (
                     <option key={type.value} value={type.value}>{type.label}</option>
                   ))}
                 </select>
-                <select value={dotaRarity} onChange={e => setDotaRarity(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                <select value={dotaRarity} onChange={e => setDotaRarity(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                   <option value="">Rarity</option>
                   {DOTA_CATEGORIES.rarities.subcategories.map(rarity => (
                     <option key={rarity.value} value={rarity.value}>{rarity.label}</option>
@@ -983,7 +1166,7 @@ export default function MarketPlace() {
               <>
                 {/* Only show exterior filter for items that support it */}
                 {supportsExterior && (
-                  <select value={exterior} onChange={e => handleFilterChange('exterior', e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                  <select value={exterior} onChange={e => handleFilterChange('exterior', e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                     <option value="">Exterior</option>
                     <option value="factorynew">Factory New</option>
                     <option value="minimalwear">Minimal Wear</option>
@@ -993,18 +1176,44 @@ export default function MarketPlace() {
                   </select>
                 )}
                 
-                {/* Only show quality filters for items that support them */}
-                {qualitySupport.stattrak && (
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={stattrak} onChange={e => handleFilterChange('stattrak', e.target.checked)} /> 
-                    StatTrak
-                  </label>
-                )}
-                {qualitySupport.souvenir && (
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={souvenir} onChange={e => handleFilterChange('souvenir', e.target.checked)} /> 
-                    Souvenir
-                  </label>
+                {/* Quality selection (mutually exclusive): None | StatTrak | Souvenir */}
+                {(qualitySupport.stattrak || qualitySupport.souvenir) && (
+                  <div className="flex flex-wrap items-center gap-3 text-sm w-full sm:w-auto">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="quality"
+                        value="none"
+                        checked={!stattrak && !souvenir}
+                        onChange={() => { setStattrak(false); setSouvenir(false); }}
+                      />
+                      None
+                    </label>
+                    {qualitySupport.stattrak && (
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="quality"
+                          value="stattrak"
+                          checked={!!stattrak}
+                          onChange={() => { setStattrak(true); setSouvenir(false); }}
+                        />
+                        StatTrak
+                      </label>
+                    )}
+                    {qualitySupport.souvenir && (
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="quality"
+                          value="souvenir"
+                          checked={!!souvenir}
+                          onChange={() => { setSouvenir(true); setStattrak(false); }}
+                        />
+                        Souvenir
+                      </label>
+                    )}
+                  </div>
                 )}
                 
               
@@ -1014,17 +1223,17 @@ export default function MarketPlace() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search items (e.g., AK-47 | Redline)"
-              className="flex-1 md:w-96 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full md:w-96 xl:col-span-2 lg:col-span-2 sm:col-span-2 col-span-1 min-w-0 max-w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
-            <input value={minPrice} onChange={e => handleFilterChange('minPrice', e.target.value)} placeholder="Min $" className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
-            <input value={maxPrice} onChange={e => handleFilterChange('maxPrice', e.target.value)} placeholder="Max $" className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
-            <select value={sortBy} onChange={e => handleFilterChange('sortBy', e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+            <input value={minPrice} onChange={e => handleFilterChange('minPrice', e.target.value)} placeholder="Min $" className="w-full sm:w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
+            <input value={maxPrice} onChange={e => handleFilterChange('maxPrice', e.target.value)} placeholder="Max $" className="w-full sm:w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
+            <select value={sortBy} onChange={e => handleFilterChange('sortBy', e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
               <option value="popularity">Popularity</option>
               <option value="priceAsc">Price: Low to High</option>
               <option value="priceDesc">Price: High to Low</option>
               <option value="name">Name</option>
             </select>
-            <button type="submit" disabled={isSearching || loading || isAutoSearching} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+            <button type="submit" disabled={isSearching || loading || isAutoSearching} className="w-full sm:w-auto px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
               {isSearching || loading || isAutoSearching ? 'Searching...' : 'Search'}
             </button>
           </form>
@@ -1064,19 +1273,103 @@ export default function MarketPlace() {
         <section className="mt-10">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">Your Watchlist</h2>
-            {!steamId && <span className="text-sm text-gray-400">Login to save watchlist</span>}
+            <div className="flex items-center gap-3">
+              {watchlist?.length > 0 && (
+                <span className="text-sm text-gray-400 hidden sm:inline">
+                  {watchlistShowAll
+                    ? `Showing all ${watchlist.length}`
+                    : (() => {
+                        const wlTotal = watchlist.length;
+                        const startIdx = (watchlistPage - 1) * watchlistPageSize + 1;
+                        const endIdx = Math.min(startIdx + watchlistPageSize - 1, wlTotal);
+                        return `Showing ${startIdx}-${endIdx} of ${wlTotal}`;
+                      })()
+                  }
+                </span>
+              )}
+              {!steamId && <span className="text-sm text-gray-400">Login to save watchlist</span>}
+            </div>
           </div>
+
+          {/* Watchlist controls */}
+          {watchlist?.length > 10 && (
+            <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-2 py-1 text-xs rounded bg-gray-700 disabled:opacity-50"
+                  disabled={watchlistShowAll || watchlistPage <= 1}
+                  onClick={() => setWatchlistPage(p => Math.max(1, p - 1))}
+                >
+                  ◀ Prev
+                </button>
+                <span className="text-xs text-gray-300">
+                  Page {watchlistShowAll ? '-' : watchlistPage} of {watchlistShowAll ? '-' : Math.max(1, Math.ceil((watchlist?.length || 0) / watchlistPageSize))}
+                </span>
+                <button
+                  className="px-2 py-1 text-xs rounded bg-gray-700 disabled:opacity-50"
+                  disabled={watchlistShowAll || watchlistPage >= Math.ceil((watchlist?.length || 0) / watchlistPageSize)}
+                  onClick={() => setWatchlistPage(p => p + 1)}
+                >
+                  Next ▶
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400">Per page</label>
+                <select
+                  className="bg-gray-800 text-xs text-gray-200 rounded px-2 py-1 border border-gray-700"
+                  value={watchlistPageSize}
+                  onChange={(e) => {
+                    setWatchlistPageSize(Number(e.target.value));
+                    setWatchlistPage(1);
+                  }}
+                  disabled={watchlistShowAll}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+                <div className="h-4 w-px bg-gray-700 mx-1" />
+                <button
+                  className="px-2 py-1 text-xs rounded bg-gray-700"
+                  onClick={() => {
+                    setWatchlistShowAll(v => !v);
+                    // Reset page when toggling
+                    setWatchlistPage(1);
+                  }}
+                >
+                  {watchlistShowAll ? 'Show paginated' : 'Show all'}
+                </button>
+              </div>
+            </div>
+          )}
           {/* Fixed grid to show 5 columns */}
-          <div className="mt-4 grid grid-cols-5 gap-4">
-            {(watchlist || []).slice(0, 10).map(item => (
-              <ItemCard key={item.id || `${item.appid || 730}_${item.hashName}`}
-                item={item}
-                inWatchlist={true}
-                onAdd={addToWatchlist}
-                onRemove={removeFromWatchlist}
-                eager={true}
-              />
-            ))}
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {(() => {
+              const wl = watchlist || [];
+              if (wl.length === 0) return null;
+              if (watchlistShowAll) {
+                return wl.map(item => (
+                  <ItemCard key={item.id || `${item.appid || 730}_${item.hashName}`}
+                    item={item}
+                    inWatchlist={true}
+                    onAdd={addToWatchlist}
+                    onRemove={removeFromWatchlist}
+                    eager={true}
+                  />
+                ));
+              }
+              const start = (watchlistPage - 1) * watchlistPageSize;
+              const end = Math.min(start + watchlistPageSize, wl.length);
+              return wl.slice(start, end).map(item => (
+                <ItemCard key={item.id || `${item.appid || 730}_${item.hashName}`}
+                  item={item}
+                  inWatchlist={true}
+                  onAdd={addToWatchlist}
+                  onRemove={removeFromWatchlist}
+                  eager={true}
+                />
+              ));
+            })()}
             {watchlist.length === 0 && (
               <div className="col-span-full text-gray-400 text-sm">No items yet. Add from results below.</div>
             )}
@@ -1094,6 +1387,8 @@ export default function MarketPlace() {
                 {/* {loading && ' • Loading...'} */}
               </div>
             </div>
+            
+
             
             {/* Price Filter Info - show simple message about Steam API price filtering */}
             {priceFilterInfo && priceFilterInfo.hasPriceFilter && (
@@ -1116,35 +1411,33 @@ export default function MarketPlace() {
             
             {/* Enhanced Pagination controls - only show if we have items */}
             {total > 0 && items.length > 0 && (
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-2 order-2 sm:order-1">
                   <button 
                     disabled={page <= 1 || loading || !pageInBounds} 
                     onClick={() => {
-                      console.log(`Navigation: Previous clicked, going from page ${page} to ${page - 1}`);
                       setError(null); // Clear any existing errors when navigating
                       fetchPage(page - 1);
                     }} 
-                    className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 text-xs sm:px-3 sm:py-2 sm:text-sm rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Previous
                   </button>
-                  <span className="px-4 py-2 text-sm">
+                  <span className="px-2 sm:px-4 py-1 sm:py-2 text-xs sm:text-sm">
                     Page {page} of {maxPage} {!pageInBounds && <span className="text-red-400">(Out of bounds!)</span>}
                   </span>
                   <button 
                     disabled={page >= maxPage || loading || !pageInBounds} 
                     onClick={() => {
-                      console.log(`Navigation: Next clicked, going from page ${page} to ${page + 1}`);
                       setError(null); // Clear any existing errors when navigating
                       fetchPage(page + 1);
                     }} 
-                    className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 text-xs sm:px-3 sm:py-2 sm:text-sm rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
                   </button>
                 </div>
-                <div className="text-sm text-gray-400">
+                <div className="order-1 sm:order-2 text-xs sm:text-sm text-gray-400">
                   {/* Show simple pagination info */}
                   {items.length > 0 ? (
                     `Showing ${Math.min(start + 1, total)} - ${Math.min(start + items.length, total)} of ${total}`
@@ -1157,7 +1450,7 @@ export default function MarketPlace() {
             )}
             {/* Fixed grid layout - 5 columns, natural rows based on item count */}
             <div className="mt-4">
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {items.map((item, idx) => (
                   <ItemCard key={item.id || `${item.appid}_${item.hashName}`}
                     item={item}
@@ -1253,6 +1546,67 @@ export default function MarketPlace() {
           </section>
         )}
       </div>
+
+      {/* Target Price Modal */}
+      {targetPriceModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-xl p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-white mb-4">Set Target Price</h3>
+            
+            <div className="mb-4">
+              <div className="text-sm text-gray-400 mb-2">Item:</div>
+              <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                {targetPriceModal.item?.iconUrl && (
+                  <img src={targetPriceModal.item.iconUrl} alt="" className="w-12 h-12 object-contain" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-medium truncate">{targetPriceModal.item?.name}</div>
+                  <div className="text-sm text-gray-400">
+                    Current: {targetPriceModal.item?.salePriceText || 'N/A'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm text-gray-400 mb-2">
+                Alert me when price drops to:
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={targetPriceModal.targetPrice}
+                  onChange={(e) => setTargetPriceModal(prev => ({ ...prev, targetPrice: e.target.value }))}
+                  className="w-full pl-8 pr-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white text-lg focus:outline-none focus:border-blue-500"
+                  placeholder="0.00"
+                  autoFocus
+                />
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                💡 Tip: Set 5-10% below current price for best deals
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setTargetPriceModal({ open: false, item: null, targetPrice: '' })}
+                className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAddToWatchlist}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-medium transition-all shadow-lg shadow-blue-500/25"
+              >
+                Add to Watchlist
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1470,10 +1824,10 @@ function SubCategorySelect({ appid, value, onChange }) {
 
       {/* Category Selection Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}>
-          <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl shadow-2xl w-full max-w-5xl max-h-[85vh] overflow-hidden border border-gray-600 flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black bg-opacity-75 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}>
+          <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl shadow-2xl w-full max-w-[95vw] sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[85vh] overflow-hidden border border-gray-600 flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 p-6 border-b border-gray-600">
+            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 p-4 sm:p-6 border-b border-gray-600">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-bold text-white">Search Community Market</h3>
@@ -1504,8 +1858,8 @@ function SubCategorySelect({ appid, value, onChange }) {
             </div>
             
             {/* Content */}
-            <div className="flex-1 p-6 overflow-y-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                 {/* All option */}
                 <div className="group bg-gradient-to-br from-gray-700/50 to-gray-800/50 rounded-xl p-4 border border-gray-600/50 hover:border-blue-500/50 transition-all duration-300">
                   <button
@@ -1585,7 +1939,7 @@ function SubCategorySelect({ appid, value, onChange }) {
             </div>
             
             {/* Footer */}
-            <div className="flex-shrink-0 bg-gray-800/50 p-4 border-t border-gray-600">
+            <div className="flex-shrink-0 bg-gray-800/50 p-3 sm:p-4 border-t border-gray-600">
               <div className="flex items-center justify-between">
                 <div className="text-sm text-gray-400">
                   {value ? (
@@ -1597,13 +1951,12 @@ function SubCategorySelect({ appid, value, onChange }) {
                 <button
                   type="button"
                   onClick={(e) => {
-                    console.log('[DONE BUTTON] Clicked, preventing default and closing modal');
                     e.preventDefault();
                     e.stopPropagation();
                     // Use setTimeout to close modal after current event loop to avoid any timing issues
                     setTimeout(() => setIsModalOpen(false), 0);
                   }}
-                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-medium transition-all duration-200 shadow-lg shadow-blue-500/25"
+                  className="px-4 sm:px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-medium transition-all duration-200 shadow-lg shadow-blue-500/25"
                 >
                   Done
                 </button>

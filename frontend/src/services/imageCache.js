@@ -1,4 +1,4 @@
-import { imageCacheConfig } from '../config/heroConfig';
+import { imageCacheConfig, cdnConfig } from '../config/heroConfig';
 
 class ImageCache {
   constructor() {
@@ -84,7 +84,6 @@ class ImageCache {
     const results = await Promise.allSettled(promises);
     const successCount = results.filter(r => r.status === 'fulfilled').length;
     
-    console.log(`[IMAGE PRELOAD] Loaded ${successCount}/${heroIds.length} hero images`);
     return results;
   }
 
@@ -206,7 +205,6 @@ class ImageCache {
         .sort((a, b) => cache.timestamps[b] - cache.timestamps[a])
         .slice(0, 20); // Top 20 most recent
       
-      console.log(`[SMART PRELOAD] Preloading ${frequentImages.length} frequently used images`);
       
       await this.batchPrefetch(frequentImages, 3, 200);
     } catch (error) {
@@ -270,11 +268,11 @@ class ImageCache {
   /**
    * Load image with retry logic
    */
-  async loadImageWithRetry(url, maxRetries = 3) {
+  async loadImageWithRetry(url, maxRetries = 2) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
 
         const response = await fetch(url, { 
           signal: controller.signal,
@@ -293,12 +291,17 @@ class ImageCache {
         this.memoryCache.set(url, base64);
         return base64;
       } catch (error) {
+        // If aborted, don't retry (component probably unmounted)
+        if (error.name === 'AbortError') {
+          throw error;
+        }
+        
         if (attempt === maxRetries) {
           throw error;
         }
         
-        // Exponential backoff
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        // Exponential backoff only for network errors
+        await new Promise(resolve => setTimeout(resolve, 500 * attempt));
       }
     }
   }
@@ -340,14 +343,29 @@ class ImageCache {
     try {
       // Check localStorage quota before saving
       const cacheString = JSON.stringify(cache);
-      if (cacheString.length > 5 * 1024 * 1024) { // 5MB limit
+      if (cacheString.length > 2 * 1024 * 1024) { // Reduced to 2MB limit
+        console.warn('[IMAGE CACHE] Cache size limit reached, cleaning old entries');
         this.clearOldEntries();
         return;
       }
       localStorage.setItem(this.cacheKey, cacheString);
     } catch (error) {
-      console.error('Failed to set cache (quota exceeded):', error);
-      this.clearOldEntries();
+      if (error.name === 'QuotaExceededError') {
+        console.warn('[IMAGE CACHE] LocalStorage quota exceeded, clearing cache');
+        this.clearCache();
+        // Try again with empty cache
+        try {
+          localStorage.setItem(this.cacheKey, JSON.stringify({
+            images: {},
+            timestamps: {},
+            size: 0
+          }));
+        } catch (e) {
+          console.error('[IMAGE CACHE] Failed to reset cache:', e);
+        }
+      } else {
+        console.error('[IMAGE CACHE] Failed to set cache:', error);
+      }
     }
   }
 
@@ -373,36 +391,34 @@ class ImageCache {
     }
 
     try {
-      // Fetch and cache new image with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
-      const response = await fetch(url, { 
-        signal: controller.signal,
-        cache: 'force-cache' // Use browser cache if available
-      });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const base64 = await this.blobToBase64(blob);
-      
-      this.addEntry(url, base64);
-      this.memoryCache.set(url, base64);
-      return base64;
+      // Load image with retry logic
+      return await this.loadImageWithRetry(url);
     } catch (error) {
-      console.error(`Failed to fetch image ${url}:`, error);
-      // Return a fallback or placeholder image
+      // Don't log AbortError as it's expected when components unmount
+      if (error.name !== 'AbortError') {
+        console.warn(`Failed to fetch image ${url}:`, error.message);
+      }
       return this.getFallbackImage();
     }
   }
 
+  blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      if (!blob) {
+        resolve(this.getFallbackImage());
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
   getFallbackImage() {
     // Return a default hero placeholder image
-    return '/heroes/default.png';
+    return cdnConfig.fallbackHero;
   }
 
   addEntry(url, base64) {
@@ -548,9 +564,54 @@ class ImageCache {
     try {
       localStorage.removeItem(this.cacheKey);
       this.memoryCache.clear();
+      this.preloadPromises.clear();
       this.init();
+      console.log('[IMAGE CACHE] Cache cleared');
     } catch (error) {
       console.error('Failed to clear cache:', error);
+    }
+  }
+
+  /**
+   * Cleanup method for cache manager
+   * Removes expired entries and manages cache size
+   */
+  cleanup() {
+    try {
+      console.log('[IMAGE CACHE] Running cleanup...');
+      
+      const cache = this.getCache();
+      const now = Date.now();
+      let removedCount = 0;
+      
+      // Remove expired entries
+      Object.keys(cache.timestamps).forEach(url => {
+        if (now - cache.timestamps[url] >= imageCacheConfig.maxAge) {
+          this.removeEntry(url);
+          removedCount++;
+        }
+      });
+
+      // If still too large, remove least recently used
+      const currentSize = JSON.stringify(cache).length;
+      if (currentSize > 1.5 * 1024 * 1024) { // If over 1.5MB
+        const sortedUrls = Object.keys(cache.timestamps)
+          .sort((a, b) => cache.timestamps[a] - cache.timestamps[b]);
+        
+        // Remove oldest 30% of entries
+        const toRemove = Math.ceil(sortedUrls.length * 0.3);
+        for (let i = 0; i < toRemove; i++) {
+          this.removeEntry(sortedUrls[i]);
+          removedCount++;
+        }
+      }
+
+      console.log(`[IMAGE CACHE] Cleanup completed. Removed ${removedCount} entries.`);
+      
+      return removedCount;
+    } catch (error) {
+      console.error('[IMAGE CACHE] Cleanup failed:', error);
+      return 0;
     }
   }
 }

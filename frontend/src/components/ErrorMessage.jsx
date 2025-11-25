@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ErrorMessage = ({ message }) => {
+const ErrorMessage = React.memo(({ message }) => {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8 flex items-center justify-center">
       <div className="max-w-xl w-full text-center">
@@ -17,6 +17,8 @@ const ErrorMessage = ({ message }) => {
       </div>
     </div>
   );
-};
+}, (prevProps, nextProps) => prevProps.message === nextProps.message);
+
+ErrorMessage.displayName = 'ErrorMessage';
 
 export default ErrorMessage; 

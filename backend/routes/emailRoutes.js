@@ -71,9 +71,9 @@ router.post('/connect-email', requireAuth, async (req, res) => {
             <h3 style="color: #059669; margin: 0;">🔔 What you'll receive:</h3>
             <ul style="margin: 10px 0; padding-left: 20px;">
               <li>💰 Price drop alerts for Steam items</li>
-              <li>📈 Market trend notifications</li>
               <li>💬 Forum activity updates</li>
-              <li>📰 Weekly digest summaries</li>
+              <li>📊 System announcements</li>
+              <li>⚡ Real-time notifications</li>
             </ul>
           </div>
           
@@ -119,7 +119,7 @@ router.get('/verify', async (req, res) => {
         <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
           <h2 style="color: #059669;">✅ Email Verified Successfully!</h2>
           <p>Your email has been connected to your Steam Vault account.</p>
-          <p>You'll now receive notifications for price drops, market trends, forum activity, and weekly digest!</p>
+          <p>You'll now receive notifications for price drops, forum activity, and system updates!</p>
           <a href="${frontendUrl}" style="background: #1e3a8a; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; margin-top: 20px;">
             🎮 Return to Steam Vault
           </a>

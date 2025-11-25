@@ -255,13 +255,13 @@ export const heroAttackType={
   138: {attackType:"Ranged",primaryAttribute:"Intelligence"},
   145: {attackType:"Melee",primaryAttribute:"Agility"},
 }
-// Cache configuration
+// Cache configuration (Conservative settings to prevent localStorage overflow)
 export const imageCacheConfig = {
-  maxSize: 200, // Maximum number of images to cache
-  maxAge: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
-  preloadBatchSize: 10, // Number of images to preload at once
-  retryAttempts: 3,
-  retryDelay: 1000, // 1 second
+  maxSize: 50, // Reduced: Maximum number of images to cache
+  maxAge: 7 * 24 * 60 * 60 * 1000, // Reduced to 7 days
+  preloadBatchSize: 5, // Reduced: Number of images to preload at once
+  retryAttempts: 2, // Reduced retry attempts
+  retryDelay: 500, // Faster retry
 };
 
 // Commonly used hero IDs for preloading

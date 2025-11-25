@@ -1,0 +1,15 @@
+{
+  "provider": {"name":"Counter-Strike 2","appid":730},
+  "map": {"name":"de_inferno","team_ct":{"score":16},"team_t":{"score":12},"round":28},
+  "round": {"phase":"over"},
+  "player": {
+    "steamid": "76561198918283411",
+    "team": "CT",
+    "state": {"health": 89, "armor": 42, "round_kills": 2, "kills": 25, "deaths": 18, "assists": 5, "mvps": 2, "score": 45},
+    "weapons": {
+      "active": "AK-47",
+      "weapon_0": {"name":"AK-47","type":"Rifle","state":"active"}
+    }
+  },
+  "allplayers": {}
+}

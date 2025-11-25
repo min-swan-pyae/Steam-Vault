@@ -16,13 +16,12 @@ import {
   getDetailedHeroStats,
 
 } from '../controllers/playerController.js';
-import { getHeroImage } from '../controllers/imageController.js';
+import { getHeroImage, getItemImage } from '../controllers/imageController.js';
 
 const router = express.Router();
 
 // Logging middleware
 router.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
   next();
 });
 
@@ -47,6 +46,7 @@ router.get('/heroes/stats', getHeroStats);
 
 // Hero image proxy to avoid CORS
 router.get('/heroes/image/:heroId', getHeroImage);
+router.get('/items/image/:itemName', getItemImage);
 
 
 export default router;

@@ -1,41 +1,82 @@
 import React, { useState } from 'react';
 import { useNotifications } from '../context/NotificationContext';
+import { useNavigate } from 'react-router-dom';
+import { formatTimeAgo } from '../utils/formatters';
 
-const NotificationBell = () => {
-  const { notifications, unreadCount, markAsRead, fetchNotifications } = useNotifications();
-  const [showDropdown, setShowDropdown] = useState(false);
+const NotificationBell = React.memo(() => {
+  const { notifications, unreadCount, markAsRead, deleteNotification, clearAll, fetchNotifications } = useNotifications();
+  const navigate = useNavigate();
+  const [clearing, setClearing] = useState(false);
 
-  const formatTimeAgo = (date) => {
-    const now = new Date();
-    const notificationDate = new Date(date);
-    const diffMs = now - notificationDate;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
+  const buildForumUrl = (notification) => {
+    const data = notification?.data || {};
+    const postId = data.postId || notification.postId;
+    if (!postId) return '/forum';
+    const params = new URLSearchParams();
+    if (data.commentId) params.set('commentId', data.commentId);
+    if (data.parentCommentId) params.set('parentCommentId', data.parentCommentId);
+    const query = params.toString();
+    return `/forum/posts/${postId}${query ? `?${query}` : ''}`;
   };
+
+  const resolveUrl = (notification) => {
+    if (notification?.url) return notification.url;
+    if (notification?.data?.url) return notification.data.url;
+    if (notification?.type?.startsWith('forum')) return buildForumUrl(notification);
+    return '/';
+  };
+  const [showDropdown, setShowDropdown] = useState(false);
 
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'price_drop': return '💰';
-      case 'market_trend': return '📈';
-      case 'forum_activity': return '💬';
-      case 'weekly_digest': return '📰';
+      case 'forum_activity':
+      case 'forum_comment': return '💬';
       default: return '🔔';
     }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    const dest = resolveUrl(notification);
+    
+    // Close dropdown first for better UX
+    setShowDropdown(false);
+    
+    // Navigate first, then delete in background
+    if (dest) {
+      navigate(dest);
+      // Delete notification after navigation (non-blocking)
+      deleteNotification(notification.id).catch(err => {
+        console.error('Failed to delete notification:', err);
+      });
+    } else {
+      // If no destination, just delete
+      await deleteNotification(notification.id);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!confirm('Clear all notifications? This cannot be undone.')) return;
+    setClearing(true);
+    const success = await clearAll();
+    setClearing(false);
+    if (success) {
+      setShowDropdown(false);
+    }
+  };
+
+  const toggleDropdown = () => {
+    setShowDropdown(prev => {
+      const next = !prev;
+      if (next) fetchNotifications();
+      return next;
+    });
   };
 
   return (
     <div className="relative">
       <button
-        onClick={() => {
-          setShowDropdown(!showDropdown);
-          fetchNotifications();
-        }}
+        onClick={toggleDropdown}
         className="relative p-2 text-gray-300 hover:text-white transition-colors"
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,7 +85,7 @@ const NotificationBell = () => {
         </svg>
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-            {unreadCount > 9 ? '9+' : unreadCount}
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
@@ -67,30 +108,22 @@ const NotificationBell = () => {
             </div>
 
             <div className="divide-y divide-gray-700">
-              {notifications.length === 0 ? (
+              {notifications.filter(n => !n.isRead).length === 0 ? (
                 <div className="p-4 text-center text-gray-400">
                   <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
                           d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                   </svg>
-                  <p className="text-sm">No notifications yet</p>
+                  <p className="text-sm">No unread notifications</p>
                 </div>
               ) : (
-                notifications.slice(0, 5).map((notification) => (
+                notifications.filter(n => !n.isRead).map((notification) => (
                   <div
                     key={notification.id}
                     className={`p-3 hover:bg-gray-700 cursor-pointer transition-colors ${
                       !notification.isRead ? 'bg-blue-900/20 border-l-2 border-blue-500' : ''
                     }`}
-                    onClick={() => {
-                      if (!notification.isRead) {
-                        markAsRead(notification.id);
-                      }
-                      if (notification.data?.url) {
-                        window.location.href = notification.data.url;
-                      }
-                      setShowDropdown(false);
-                    }}
+                    onClick={() => handleNotificationClick(notification)}
                   >
                     <div className="flex items-start space-x-3">
                       <span className="text-lg flex-shrink-0 mt-1">
@@ -124,16 +157,25 @@ const NotificationBell = () => {
             </div>
 
             {notifications.length > 0 && (
-              <div className="p-3 border-t border-gray-700 text-center">
-                <button
-                  onClick={() => {
-                    fetchNotifications();
-                    setShowDropdown(false);
-                  }}
-                  className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
-                >
-                  View All Notifications
-                </button>
+              <div className="p-3 border-t border-gray-700">
+                <div className="flex flex-col space-y-2">
+                  <button
+                    onClick={() => {
+                      setShowDropdown(false);
+                      navigate('/notifications');
+                    }}
+                    className="text-blue-400 bg-transparent border border-gray-700 hover:text-blue-300 text-sm transition-colors"
+                  >
+                    View All Notifications
+                  </button>
+                  <button
+                    onClick={handleClearAll}
+                    disabled={clearing}
+                    className="text-red-400  bg-transparent border border-gray-700 hover:text-red-300 text-sm transition-colors disabled:opacity-50"
+                  >
+                    {clearing ? 'Clearing...' : '🗑️ Clear All Notifications'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -141,6 +183,8 @@ const NotificationBell = () => {
       )}
     </div>
   );
-};
+});
+
+NotificationBell.displayName = 'NotificationBell';
 
 export default NotificationBell;

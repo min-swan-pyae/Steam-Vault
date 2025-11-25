@@ -17,24 +17,49 @@ export const loadHeroMap = async () => {
   if (heroMapLoaded) return; // already cached
 
   try {
-    const { data } = await axios.get(
-      'https://api.steampowered.com/IEconDOTA2_570/GetHeroes/v1/',
-      {
-        params: {
-          key: process.env.STEAM_API_KEY,
-          language: 'en_us'
-        }
-      }
-    );
-
-    data.result.heroes.forEach(hero => {
-      heroMap.set(hero.id, hero.localized_name);
+    // Try OpenDota first (more reliable, has image data)
+    const openDotaRes = await axios.get('https://api.opendota.com/api/heroes', { 
+      timeout: 20000 
     });
+    
+    if (openDotaRes.status === 200 && Array.isArray(openDotaRes.data)) {
+      // Cache for imageController to use
+      cacheService.set(CACHE_TYPES.HERO_DATA, 'all_heroes', openDotaRes.data, 86400 * 7); // Cache for 7 days
+      
+      // Also populate heroMap for getHeroName()
+      openDotaRes.data.forEach(hero => {
+        heroMap.set(hero.id, hero.localized_name);
+      });
+      
+      heroMapLoaded = true;
+      console.log(`✅ Hero map loaded from OpenDota: ${openDotaRes.data.length} heroes (cached for 7 days).`);
+      return;
+    }
+  } catch (openDotaErr) {
+    console.warn('⚠️ OpenDota heroes failed, trying Steam API...', openDotaErr.message);
+    
+    // Fallback to Steam API
+    try {
+      const { data } = await axios.get(
+        'https://api.steampowered.com/IEconDOTA2_570/GetHeroes/v1/',
+        {
+          params: {
+            key: process.env.STEAM_API_KEY,
+            language: 'en_us'
+          },
+          timeout: 20000
+        }
+      );
 
-    heroMapLoaded = true;
-    console.log('✅ Hero map loaded and cached.');
-  } catch (err) {
-    console.error('❌ Failed to load hero map:', err.message);
+      data.result.heroes.forEach(hero => {
+        heroMap.set(hero.id, hero.localized_name);
+      });
+
+      heroMapLoaded = true;
+      console.log(`✅ Hero map loaded from Steam API: ${data.result.heroes.length} heroes.`);
+    } catch (steamErr) {
+      console.error('❌ Failed to load hero map from both sources:', steamErr.message);
+    }
   }
 };
 
@@ -43,20 +68,26 @@ export const getHeroName = (id) => {
 };
 
 export const loadItemMap = async () => {
-  if (itemMapLoaded) return; // already cached
+  if (itemMapLoaded) {
+    console.log(`✅ Item map already loaded with ${itemMap.size} items`);
+    return; // already cached
+  }
 
   try {
     const { data: allItemsData } = await steamService.openDotaApi.get('/constants/items');
 
+    let loadedCount = 0;
     for (const key in allItemsData) {
       const item = allItemsData[key];
       if (item.id) {
+        // Add the internal name to the item (derived from the key)
+        item.name = `item_${key}`;
         itemMap.set(item.id, item);
-
+        loadedCount++;
       }
     }
     itemMapLoaded = true;
-    console.log('✅ Item map loaded and cached.');
+    console.log(`✅ Item map loaded and cached with ${itemMap.size} items.`);
 
   } catch (err) {
     console.error('❌ Failed to load item map:', err.message);
@@ -66,6 +97,12 @@ export const loadItemMap = async () => {
 export const getItemName = (id) => {
   const item = itemMap.get(id);
   return item ? item.dname : `Unknown Item (${id})`;
+};
+
+export const getItemInternalName = (id) => {
+  if (!id || id === 0) return null;
+  const item = itemMap.get(id);
+  return item && item.name ? item.name : `item_${id}`;
 };
 
 export const getItemImage = (id) => {
@@ -146,7 +183,6 @@ export const convertSteamIdToAccountId = (steamId) => {
       // This is likely a Steam64 ID, convert to account ID
       const steamId64 = BigInt(steamId);
       const steamId32 = (steamId64 - BigInt('76561197960265728')).toString();
-      console.log(`Converting Steam64 ID ${steamId} to account ID ${steamId32}`);
       return steamId32;
     } catch (err) {
       console.error(`Error converting Steam ID: ${err.message}`);
@@ -261,7 +297,6 @@ export const fetchMatchDetails = async (match_id) => {
       if (attempt > 1) {
         const jitter = Math.floor(Math.random() * 500); // Random jitter up to 500ms
         await new Promise(resolve => setTimeout(resolve, retryDelay + jitter));
-        console.log(`Retry attempt ${attempt} for match ${match_id}`);
       }
       
       const detailRes = await steamApi.get('/IDOTA2Match_570/GetMatchDetails/V001/', {
@@ -325,7 +360,6 @@ export const fetchMatchDetailsInParallel = async (matches, concurrency = 2) => {
     const effectiveConcurrency = consecutiveErrors > 3 ? 1 : concurrency;
     const batch = matches.slice(i, i + effectiveConcurrency);
     
-    console.log(`Processing batch ${Math.floor(i/effectiveConcurrency) + 1}/${Math.ceil(matches.length/effectiveConcurrency)}, size: ${batch.length}`);
     
     // Process each match in the batch with individual error handling
     const batchPromises = batch.map(match => fetchMatchDetails(match.match_id));
@@ -340,7 +374,6 @@ export const fetchMatchDetailsInParallel = async (matches, concurrency = 2) => {
       consecutiveErrors += batchErrors;
       // Exponential backoff with a maximum
       currentDelay = Math.min(currentDelay * 1.5, maxDelay);
-      console.log(`Detected ${batchErrors} errors in batch. Increasing delay to ${currentDelay}ms`);
     } else {
       // Reset error count and gradually reduce delay on success
       consecutiveErrors = Math.max(0, consecutiveErrors - 1);
@@ -363,7 +396,6 @@ export const fetchMatchDetailsInParallel = async (matches, concurrency = 2) => {
     
     // Add adaptive delay between batches to avoid rate limiting
     if (i + effectiveConcurrency < matches.length) {
-      console.log(`Waiting ${currentDelay}ms before next batch...`);
       await new Promise(resolve => setTimeout(resolve, currentDelay));
     }
   }
@@ -377,7 +409,6 @@ export const createMinimalMatchData = (match, accountId) => {
     const player = match.players.find(p => p.account_id === Number(accountId));
     
     if (!player) {
-      console.log(`Warning: Player ${accountId} not found in match ${match.match_id}`);
       return null;
     }
     
@@ -421,7 +452,6 @@ export const processMatchWithDetails = (match, detail, accountId) => {
     const player = match.players.find(p => p.account_id === Number(accountId));
     
     if (!player) {
-      console.log(`Warning: Player ${accountId} not found in match ${match.match_id}`);
       return null;
     }
     
@@ -642,11 +672,16 @@ export const enrichPlayersWithProfiles = async (matchData, apiKey) => {
     for (let i = 0; i < 6; i++) {
       const itemId = player[`item_${i}`];
       if (itemId && itemId !== 0) {
-        items.push({
-          id: itemId,
-          name: getItemName(itemId),
-          image: getItemImage(itemId)
-        });
+        const item = itemMap.get(itemId);
+        // Use internal name from itemMap, or skip if not found
+        if (item && item.name) {
+          items.push({
+            id: itemId,
+            name: getItemName(itemId),
+            itemName: item.name.replace(/^item_/, ''), // Remove 'item_' prefix for frontend
+            image: getItemImage(itemId) // Keep for backward compatibility
+          });
+        }
       }
     }
 
@@ -654,19 +689,31 @@ export const enrichPlayersWithProfiles = async (matchData, apiKey) => {
     for (let i = 0; i < 3; i++) {
       const backpackId = player[`backpack_${i}`];
       if (backpackId && backpackId !== 0) {
-        backpack.push({
-          id: backpackId,
-          name: getItemName(backpackId),
-          image: getItemImage(backpackId)
-        });
+        const item = itemMap.get(backpackId);
+        // Use internal name from itemMap, or skip if not found
+        if (item && item.name) {
+          backpack.push({
+            id: backpackId,
+            name: getItemName(backpackId),
+            itemName: item.name.replace(/^item_/, ''), // Remove 'item_' prefix for frontend
+            image: getItemImage(backpackId) // Keep for backward compatibility
+          });
+        }
       }
     }
 
-    const neutralItem = player.item_neutral && player.item_neutral !== 0 ? {
-      id: player.item_neutral,
-      name: getItemName(player.item_neutral),
-      image: getItemImage(player.item_neutral)
-    } : null;
+    let neutralItem = null;
+    if (player.item_neutral && player.item_neutral !== 0) {
+      const neutralItemData = itemMap.get(player.item_neutral);
+      if (neutralItemData && neutralItemData.name) {
+        neutralItem = {
+          id: player.item_neutral,
+          name: getItemName(player.item_neutral),
+          itemName: neutralItemData.name.replace(/^item_/, ''), // Remove 'item_' prefix for frontend
+          image: getItemImage(player.item_neutral) // Keep for backward compatibility
+        };
+      }
+    }
 
     return {
       ...player,

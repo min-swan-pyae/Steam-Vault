@@ -1,16 +1,17 @@
 import axios from 'axios';
 import { cacheService, CACHE_TYPES } from './cacheService.js';
+import { TIMEOUTS } from '../utils/retryUtils.js';
 
 const steamApi = axios.create({
   baseURL: 'https://api.steampowered.com',
-  timeout: 30000,
+  timeout: TIMEOUTS.STEAM_API,
   headers: { 'Accept': 'application/json' }
 });
 
 // Steam Community Market client
 const http = axios.create({
   baseURL: 'https://steamcommunity.com/market',
-  timeout: 15000, // Reduced from 45000 to 15000 for faster feedback
+  timeout: TIMEOUTS.STEAM_MARKET,
   headers: {
     'Accept': 'application/json, text/javascript, */*; q=0.01',
     'Accept-Language': 'en-US,en;q=0.9',
@@ -104,13 +105,6 @@ function buildFilterParams(appid, filters = {}) {
       'tag_CSGO_Type_WeaponCase',   // Cases
     ];
     
-    console.log(`[MARKET SERVICE] Exterior filtering check:`, {
-      exterior: clean.exterior,
-      type: clean.type,
-      exteriorNotAllowed: noExterior.includes(clean.type),
-      noExteriorArray: noExterior
-    });
-    
     if (clean.exterior && !noExterior.includes(clean.type)) {
       const wearMap = {
         factorynew: 'tag_WearCategory0',
@@ -120,17 +114,8 @@ function buildFilterParams(appid, filters = {}) {
         battlescarred: 'tag_WearCategory4'
       };
       
-      console.log(`[MARKET SERVICE] Wear mapping:`, {
-        cleanExterior: clean.exterior,
-        mappedWear: wearMap[clean.exterior]
-      });
-      
       if (wearMap[clean.exterior]) {
         params[`category_${appid}_Exterior[]`] = wearMap[clean.exterior];
-        console.log(`[MARKET SERVICE] Added exterior parameter:`, {
-          paramKey: `category_${appid}_Exterior[]`,
-          paramValue: wearMap[clean.exterior]
-        });
       }
     }
 
@@ -204,7 +189,6 @@ class RequestQueue {
   }
   async enqueue(requestFn) {
     return new Promise((resolve, reject) => {
-      console.log(`[REQUEST QUEUE] Adding request to queue. Queue length: ${this.queue.length}`);
       this.queue.push({ requestFn, resolve, reject, retries: 0 });
       this.processQueue();
     });
@@ -219,7 +203,6 @@ class RequestQueue {
         const now = Date.now();
         const span = now - this.lastRequestTime;
         const wait = Math.max(0, this.currentDelay - span);
-        console.log(`[REQUEST QUEUE] Processing request. Wait: ${wait}ms, Active: ${this.activeRequests}`);
         if (wait > 0) await new Promise(r => setTimeout(r, wait));
         this.lastRequestTime = Date.now();
 
@@ -227,7 +210,6 @@ class RequestQueue {
         this.failureCount = 0;
         this.currentDelay = this.minDelay;
         this.activeRequests--;
-        console.log(`[REQUEST QUEUE] Request completed successfully`);
         resolve(result);
       } catch (err) {
         this.activeRequests--;
@@ -237,7 +219,6 @@ class RequestQueue {
         if ((status === 429 || isTimeout) && retries < 2) {
           this.failureCount++;
           this.currentDelay = Math.min(this.maxDelay, this.minDelay * Math.pow(2, this.failureCount));
-          console.log(`[REQUEST QUEUE] Retrying after ${this.currentDelay}ms delay. Retry ${retries + 1}/3`);
           await new Promise(r => setTimeout(r, this.currentDelay));
           this.queue.unshift({ requestFn, resolve, reject, retries: retries + 1 });
           continue;
@@ -270,39 +251,33 @@ async function searchItems({ appid, query = '', start = 0, pageSize = 10, filter
     let sortColumn = 'popular';
     let sortDir = 'desc';
     
-    console.log(`[MARKET] Received sortBy: "${sortBy}"`);
     
     switch (sortBy) {
       case 'priceAsc':
       case 'price_asc':
         sortColumn = 'price';
         sortDir = 'asc';
-        console.log(`[MARKET] Mapped to price ascending`);
         break;
       case 'priceDesc':
       case 'price_desc':
         sortColumn = 'price';
         sortDir = 'desc';
-        console.log(`[MARKET] Mapped to price descending`);
         break;
       case 'name':
       case 'nameAsc':
       case 'name_asc':
         sortColumn = 'name';
         sortDir = 'asc';
-        console.log(`[MARKET] Mapped to name ascending`);
         break;
       case 'nameDesc':
       case 'name_desc':
         sortColumn = 'name';
         sortDir = 'desc';
-        console.log(`[MARKET] Mapped to name descending`);
         break;
       case 'popularity':
       default:
         sortColumn = 'popular';
         sortDir = 'desc';
-        console.log(`[MARKET] Mapped to popularity (default)`);
         break;
     }
 
@@ -338,19 +313,15 @@ async function searchItems({ appid, query = '', start = 0, pageSize = 10, filter
       const minPriceNum = parseFloat(minPrice);
       if (!isNaN(minPriceNum)) {
         baseParams.price_min = Math.floor(minPriceNum * 100); // Steam uses cents
-        console.log(`[MARKET] Min price filter: ${minPrice} -> ${baseParams.price_min} cents`);
       }
     }
     if (maxPrice !== undefined && maxPrice !== null && maxPrice !== '') {
       const maxPriceNum = parseFloat(maxPrice);
       if (!isNaN(maxPriceNum)) {
         baseParams.price_max = Math.floor(maxPriceNum * 100); // Steam uses cents
-        console.log(`[MARKET] Max price filter: ${maxPrice} -> ${baseParams.price_max} cents`);
       }
     }
     
-    console.log(`[MARKET] Sort settings: column=${sortColumn}, dir=${sortDir} (from sortBy="${sortBy}")`);
-    console.log(`[MARKET] Full params:`, baseParams);
 
     // Apply the same filtering rules as the frontend
     const noExteriorTypes = [
@@ -408,8 +379,6 @@ async function searchItems({ appid, query = '', start = 0, pageSize = 10, filter
       : cleanFilters;
 
     const filterParams = buildFilterParams(appid, stitchedFilters);
-    console.log(`[MARKET] Filter params generated:`, filterParams);
-    console.log(`[MARKET] Original filters:`, stitchedFilters);
 
     // Fetch single page with proper pagination (not bulk)
     const collected = [];
@@ -423,17 +392,11 @@ async function searchItems({ appid, query = '', start = 0, pageSize = 10, filter
     };
     
     try {
-      console.log(`[MARKET] Fetching page: start=${params.start}, count=${params.count}`);
-      console.log(`[MARKET] Full params:`, params);
       
       const startTime = Date.now();
       const res = await scheduledGet('/search/render/', { params });
       const endTime = Date.now();
       
-      console.log(`[MARKET] Request took ${endTime - startTime}ms`);
-      console.log(`[MARKET] Raw response data:`, res.data ? Object.keys(res.data) : 'No data');
-      console.log(`[MARKET] Results count:`, res.data?.results?.length || 0);
-      console.log(`[MARKET] Total count:`, res.data?.total_count || 0);
       
       const page = (res.data?.results || []).map((r) => normalizeSearchResult(r, appid));
       total = res.data?.total_count || 0;
@@ -444,7 +407,6 @@ async function searchItems({ appid, query = '', start = 0, pageSize = 10, filter
       return { total: 0, results: [] }; 
     }
 
-    console.log(`[MARKET] Single page fetch complete: ${collected.length} items, total: ${total}`);
     return { 
       total: total, 
       results: collected,

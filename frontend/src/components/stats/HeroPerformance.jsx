@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchHeroStats } from '../../features/stats/statsSlice';
 import { heroNameMap } from '../../config/heroConfig';
 
-export default function HeroPerformance({ steamId }) {
+const HeroPerformance = React.memo(({ steamId }) => {
   const dispatch = useDispatch();
   const { data: heroStats, status, error } = useSelector((state) => state.stats.heroStats);
 
@@ -69,4 +69,8 @@ export default function HeroPerformance({ steamId }) {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => prevProps.steamId === nextProps.steamId);
+
+HeroPerformance.displayName = 'HeroPerformance';
+
+export default HeroPerformance;

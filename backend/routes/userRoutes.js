@@ -11,19 +11,18 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
-// Export user data bundle as downloadable JSON
+// Export user data bundle as downloadable JSON (frontend transforms to Excel)
 router.get('/export', requireAuth, async (req, res) => {
   try {
     const steamId = req.user.steamId;
 
     // Collect data from multiple collections
-    const [userDoc, profile, emailConn, notifications, watchlists, priceAlerts, matches, playerStats, weaponStats, mapStats] = await Promise.all([
+    const [userDoc, profile, emailConn, notifications, watchlists, matches, playerStats, weaponStats, mapStats] = await Promise.all([
       firebaseService.users.doc(steamId).get(),
       firebaseService.getUserProfile(steamId),
       firebaseService.getUserEmail(steamId),
       firebaseService.notifications.where('steamId', '==', steamId).orderBy('createdAt', 'desc').limit(500).get(),
       firebaseService.marketWatchlists.where('steamId', '==', steamId).limit(500).get(),
-      firebaseService.priceAlerts.where('steamId', '==', steamId).limit(500).get(),
       firebaseService.matches.where('steamId', '==', steamId).orderBy('date', 'desc').limit(1000).get(),
       firebaseService.playerStats.doc(steamId).get(),
       firebaseService.weaponStats.where('steamId', '==', steamId).limit(1000).get(),
@@ -39,7 +38,6 @@ router.get('/export', requireAuth, async (req, res) => {
       emailConnection: emailConn || null,
       notifications: notifications.docs.map(d => ({ id: d.id, ...d.data() })),
       watchlist: watchlists.docs.map(d => ({ id: d.id, ...d.data() })),
-      priceAlerts: priceAlerts.docs.map(d => ({ id: d.id, ...d.data() })),
       matches: matches.docs.map(d => ({ id: d.id, ...d.data() })),
       playerStats: playerStats.exists ? playerStats.data() : null,
       weaponStats: weaponStats.docs.map(d => ({ id: d.id, ...d.data() })),
@@ -74,27 +72,36 @@ router.post('/preferences', requireAuth, async (req, res) => {
       preferences: {
         enableNotifications: !!preferences.enableNotifications,
         emailNotifications: !!preferences.emailNotifications,
-        priceAlerts: !!preferences.priceAlerts,
-        forumNotifications: !!preferences.forumNotifications,
-        weeklyDigest: !!preferences.weeklyDigest,
+  priceAlerts: !!preferences.priceAlerts,
+  forumNotifications: !!preferences.forumNotifications,
         notificationFrequency: preferences.notificationFrequency || 'instant'
       },
       updatedAt: timestamp
     };
 
+    // Always store userProfiles with doc id == steamId for deterministic access
     if (!existingProfile) {
-  await firebaseService.userProfiles.doc().set({ ...updated, createdAt: timestamp });
+      await firebaseService.userProfiles.doc(steamId).set({ ...updated, createdAt: timestamp });
     } else {
-      const profileQuery = await firebaseService.userProfiles.where('steamId', '==', steamId).limit(1).get();
-      if (!profileQuery.empty) {
-        await profileQuery.docs[0].ref.set(updated, { merge: true });
-      }
+      await firebaseService.userProfiles.doc(steamId).set(updated, { merge: true });
     }
 
     res.json({ success: true });
   } catch (error) {
     console.error('[PREFERENCES] Error saving preferences:', error);
     res.status(500).json({ error: 'Failed to save preferences' });
+  }
+});
+
+// Load notification preferences
+router.get('/preferences', requireAuth, async (req, res) => {
+  try {
+    const steamId = req.user.steamId;
+    const profile = await firebaseService.getUserProfile(steamId);
+    res.json({ preferences: profile?.preferences || null });
+  } catch (error) {
+    console.error('[PREFERENCES] Error loading preferences:', error);
+    res.status(500).json({ error: 'Failed to load preferences' });
   }
 });
 

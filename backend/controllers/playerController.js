@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import steamService from '../services/steamService.js';
 import axios from 'axios';
 import { cacheService, CACHE_TYPES } from '../services/cacheService.js';
-import { getItemName, getItemImage, loadItemMap } from '../utils/dotaUtils.js';
+import { getItemName, getItemInternalName, getItemImage, loadItemMap } from '../utils/dotaUtils.js';
 
 const __dirname = path.resolve();
 // Legacy export for compatibility with other modules
@@ -103,32 +103,22 @@ export const getPlayerStats = asyncHandler(async (req, res) => {
     res.json(responseData);
   } catch (error) {
     console.error('Error fetching player data:', error.message);
-    
-    // Return mock data on error
-    try {
-      const mockPath = path.join(__dirname, 'mock', 'playerStats.json');
-      const data = await fs.readFile(mockPath, 'utf-8')
-        .catch(() => JSON.stringify({
-          steamId: req.params.steamId,
-          personaname: 'Sample Player',
-          avatar: 'https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/fe/fef49e7fa7e1997310d705b2a6158ff8dc1cdfeb_full.jpg',
-          match_count: 1250,
-          win_count: 650,
-          lose_count: 600,
-          win_rate: '52.0%',
-          average_kda: '3.21',
-          most_played_role: 'Mid Lane',
-          role_games: 423,
-          mmr_estimate: '3500',
-          matches: []
-        }));
-      
-      const mockData = typeof data === 'string' ? JSON.parse(data) : data;
-      return res.json(mockData);
-    } catch (mockError) {
-      console.error('Error with mock data:', mockError.message);
-      return res.status(500).json({ message: 'Error fetching player data' });
+    const status = error.statusCode || error.response?.status;
+    const errorCode = error.code || error.response?.data?.error;
+
+    if (errorCode === 'NO_DOTA_DATA') {
+      return res.status(404).json({ message: 'This player has no public Dota data available yet', error: 'NO_DOTA_DATA' });
     }
+
+    if (status === 404 || errorCode === 'PLAYER_NOT_FOUND') {
+      return res.status(404).json({ message: 'Player profile not found', error: 'PLAYER_NOT_FOUND' });
+    }
+
+    if (status === 403 || errorCode === 'PRIVATE_PROFILE') {
+      return res.status(403).json({ message: 'This player profile is private', error: 'PRIVATE_PROFILE' });
+    }
+
+    return res.status(500).json({ message: 'Error fetching player data' });
   }
 });
 
@@ -350,7 +340,7 @@ const getMostPlayedRole = (matches) => {
  */
 export const getPlayerHeroStats = asyncHandler(async (req, res) => {
   const { steamId } = req.params;
-  const cacheKey = `hero_stats_${steamId}`;
+  const cacheKey = `hero_stats_${steamId}_v3`; // v3: removed highest_gpm/xpm due to API rate limiting
   
   // Check cache first
   const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
@@ -358,9 +348,12 @@ export const getPlayerHeroStats = asyncHandler(async (req, res) => {
     return res.json(cached);
   }
   
+  console.log('🔄 Fetching fresh hero stats from API');
+  
   try {
     // Convert Steam ID to account ID for OpenDota API
     const accountId = steamService.getAccountId(steamId);
+    console.log('🔍 Fetching hero stats for account ID:', accountId);
     
     const playerProfile = await steamService.getPlayerProfile(steamId);
     
@@ -372,44 +365,18 @@ export const getPlayerHeroStats = asyncHandler(async (req, res) => {
     }
     
     // Fetch hero stats from OpenDota API
-    const heroStatsResponse = await axios.get(`https://api.opendota.com/api/players/${accountId}/heroes`);
-
-    // Fetch recent matches to calculate highest GPM and XPM
-    const matchesResponse = await axios.get(`https://api.opendota.com/api/players/${accountId}/matches`, {
-      params: {
-        limit: 1000, 
-        project: ['hero_id', 'gold_per_min', 'xp_per_min'] // Only request the fields we need
-      }
+    console.log('📊 Fetching hero stats from OpenDota...');
+    const heroStatsResponse = await axios.get(`https://api.opendota.com/api/players/${accountId}/heroes`, {
+      timeout: 15000
     });
 
-    // Calculate highest GPM and XPM for each hero
-    const heroPerformance = {};
-    
-    // Process matches to calculate highest GPM and XPM per hero
-    if (matchesResponse.data && matchesResponse.data.length > 0) {
-      matchesResponse.data.forEach(match => {
-        const heroId = match.hero_id;
-        const gpm = match.gold_per_min || 0;
-        const xpm = match.xp_per_min || 0;
-        
-        if (!heroPerformance[heroId]) {
-          heroPerformance[heroId] = {
-            highest_gpm: gpm,
-            highest_xpm: xpm
-          };
-        } else {
-          heroPerformance[heroId].highest_gpm = Math.max(heroPerformance[heroId].highest_gpm, gpm);
-          heroPerformance[heroId].highest_xpm = Math.max(heroPerformance[heroId].highest_xpm, xpm);
-        }
-      });
-    }
+    // Note: Highest GPM/XPM calculation removed due to OpenDota API rate limiting
+    // The /matches endpoint with limit=1000 was timing out and causing performance issues
+    // This data is not critical for the hero list view and can be seen in detailed stats
 
     // Process and enrich the hero stats data
     const heroStats = heroStatsResponse.data.map(hero => {
       const heroInfo = heroMap[hero.hero_id] || { localized_name: 'Unknown Hero' };
-      const performance = heroPerformance[hero.hero_id] || { highest_gpm: "Unavailable", highest_xpm: "Unavailable"};
-      
-      
 
       return {
         hero_id: hero.hero_id,
@@ -422,22 +389,26 @@ export const getPlayerHeroStats = asyncHandler(async (req, res) => {
         with_games: hero.with_games || 0,
         with_win: hero.with_win || 0,
         against_games: hero.against_games || 0,
-        against_win: hero.against_win || 0,
-        highest_gpm: performance.highest_gpm,
-        highest_xpm: performance.highest_xpm
+        against_win: hero.against_win || 0
       };
     });
     
     // Sort by games played (descending)
     heroStats.sort((a, b) => b.games - a.games);
     
-    // Cache the result
+    console.log('📊 Hero stats processed:', heroStats.length, 'heroes for player', playerProfile.personaname);
+    
+    // Cache the result (v3 to invalidate old cache with highest_gpm/xpm fields)
     cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, heroStats);
     
     res.json(heroStats);
   } catch (error) {
-    console.error('Error fetching hero stats:', error.message);
-    res.status(500).json({ message: 'Failed to fetch hero statistics' });
+    console.error('❌ Error fetching hero stats:', error.message);
+    console.error('Error details:', error.response?.data || error.stack);
+    res.status(500).json({ 
+      message: 'Failed to fetch hero statistics',
+      error: error.message 
+    });
   }
 });
 
@@ -725,15 +696,26 @@ const analyzeItemUsage = (matches) => {
     }
   });
   
-  // Convert to object with item names and win rates
+  // Convert to object with internal item names as keys and win rates
   const result = {};
   Object.entries(itemStats).forEach(([itemId, stats]) => {
-    const itemName = getItemName(parseInt(itemId));
+    const itemInternalName = getItemInternalName(parseInt(itemId)); // Use internal name like "item_blink"
+    
+    // Skip items that can't be resolved
+    if (!itemInternalName) {
+      console.warn(`[ITEM USAGE] Skipping unresolved item ID: ${itemId}`);
+      return;
+    }
+    
+    const itemDisplayName = getItemName(parseInt(itemId));
     const itemImageUrl = getItemImage(parseInt(itemId));
-    result[itemName] = {
+    // Remove 'item_' prefix for frontend compatibility with CachedItemImage component
+    const frontendItemName = itemInternalName.replace(/^item_/, '');
+    result[frontendItemName] = {
       count: stats.count,
       win_rate: Math.round((stats.wins / stats.count) * 100),
       frequency: Math.round((stats.count / matches.length) * 100),
+      display_name: itemDisplayName, // Add display name for frontend
       image: itemImageUrl // Add the image URL from backend
     };
   });
@@ -758,7 +740,6 @@ const analyzeLanePreference = (matches) => {
 
     let determinedLane = '';
 
-    console.log(`Match ID: ${match.match_id}, Lane: ${lane}, Role: ${role}`);
 
     // Determine if the player is Radiant or Dire
     const isRadiantPlayer = match.player_slot < 128;
@@ -954,15 +935,18 @@ export const  getPlayerPerformanceSummary = asyncHandler(async (req, res) => {
       playerProfile = await steamService.getPlayerProfile(steamId);
     } catch (error) {
       console.error(`Failed to fetch player profile for Steam ID ${steamId}:`, error.message);
-      playerProfile = {
-        steamId,
-        personaname: 'Unknown Player',
-        avatar: '',
-        match_count: 0,
-        win_rate: '0%',
-        average_kda: '0.00',
-        most_played_role: { role: 'Unknown' }
-      };
+      const status = error.statusCode || error.response?.status;
+      const errorCode = error.code || error.response?.data?.error;
+      if (errorCode === 'NO_DOTA_DATA') {
+        return res.status(404).json({ message: 'This player has no public Dota data available yet', error: 'NO_DOTA_DATA' });
+      }
+      if (status === 404 || errorCode === 'PLAYER_NOT_FOUND') {
+        return res.status(404).json({ message: 'Player profile not found', error: 'PLAYER_NOT_FOUND' });
+      }
+      if (status === 403 || errorCode === 'PRIVATE_PROFILE') {
+        return res.status(403).json({ message: 'This player profile is private', error: 'PRIVATE_PROFILE' });
+      }
+      throw error;
     }
     
     // Get extended stats with error handling
@@ -1227,7 +1211,6 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
     }
 
     // Fetch detailed data for these last 30 (or fewer) match summaries
-    console.log(`[getDetailedHeroStats] Attempting to fetch details for ${recentHeroMatchSummaries.length} recent hero matches.`);
     const detailedHeroMatchesPromises = recentHeroMatchSummaries.map(async (summary) => {
       try {
         const matchDetailResponse = await axios.get(`https://api.opendota.com/api/matches/${summary.match_id}`);
@@ -1247,7 +1230,6 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
               lane_role: playerData.lane_role // Explicitly add lane_role
             };
         }
-        console.log("Player Data - - - - ",playerData);
         return null; // Player data not found in this match for this hero (should not happen if hero_id matches)
       } catch (err) {
         if (err.response && err.response.status === 404) {
@@ -1261,7 +1243,6 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
     });
 
     let detailedHeroMatches = (await Promise.all(detailedHeroMatchesPromises)).filter(match => match !== null);
-    console.log(`[getDetailedHeroStats] Successfully fetched details for ${detailedHeroMatches.length} matches after filtering.`);
 
     // Fallback if detailed fetches for the recent 30 matches fail or yield no valid data
     if (detailedHeroMatches.length === 0) {

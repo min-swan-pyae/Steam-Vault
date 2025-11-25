@@ -30,7 +30,6 @@ import firebaseService from '../services/firebaseService.js';
 export const getPlayerStats = asyncHandler(async (req, res) => {
   const { steamId } = req.params;
   
-  console.log(`[CS2 CONTROLLER] getPlayerStats called for steamId: ${steamId}`);
 
   // Validate Steam ID
   if (!steamId || steamId.length < 10) {
@@ -54,15 +53,12 @@ export const getPlayerStats = asyncHandler(async (req, res) => {
     // Try to get from cache first
     const cachedStats = cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
     if (cachedStats) {
-      console.log(`[CS2 CONTROLLER] Cache hit for stats: ${steamId}`);
       return res.json(cachedStats);
     }
 
     // Fetch comprehensive CS2 statistics from multiple sources
-    console.log(`[CS2 CONTROLLER] Fetching comprehensive stats for steamId: ${steamId}`);
     const playerStats = await getComprehensivePlayerStats(steamId);
     
-    console.log(`[CS2 CONTROLLER] Received stats with steamId: ${playerStats?.steamId}`);
     
     if (!playerStats) {
       return res.status(404).json({
@@ -75,7 +71,6 @@ export const getPlayerStats = asyncHandler(async (req, res) => {
     // Cache the results
     cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, playerStats, 5 * 60 * 1000); // 5 minutes cache
 
-    console.log(`[CS2 CONTROLLER] Stats fetched successfully for: ${steamId}`);
     res.json(playerStats);
   } catch (error) {
     console.error(`[CS2 CONTROLLER] Error fetching stats for ${steamId}:`, error);
@@ -121,7 +116,6 @@ async function getSteamCS2Stats(steamId) {
   try {
     const apiKey = process.env.STEAM_API_KEY;
     if (!apiKey) {
-      console.log('[CS2 CONTROLLER] No Steam API key configured');
       return null;
     }
 
@@ -129,11 +123,9 @@ async function getSteamCS2Stats(steamId) {
     const steamCacheKey = `steam_cs2_stats_${steamId}`;
     const cachedSteamStats = cacheService.get(CACHE_TYPES.CS2_DATA, steamCacheKey);
     if (cachedSteamStats) {
-      console.log(`[CS2 CONTROLLER] Cache hit for Steam CS2 stats: ${steamId}`);
       return cachedSteamStats;
     }
 
-    console.log(`[CS2 CONTROLLER] Fetching Steam CS2 stats for: ${steamId}`);
     
     // CS2 App ID is 730 (same as CS:GO)
     const CS2_APP_ID = 730;
@@ -168,7 +160,6 @@ async function getSteamCS2Stats(steamId) {
     // Try each endpoint
     for (const endpoint of endpoints) {
       try {
-        console.log(`[CS2 CONTROLLER] Trying endpoint: ${endpoint.url}`);
         response = await axios.get(endpoint.url, {
           params: endpoint.params,
           timeout: 15000,
@@ -178,31 +169,26 @@ async function getSteamCS2Stats(steamId) {
         });
         
         if (response.data && (response.data.playerstats || response.data.playerstats)) {
-          console.log(`[CS2 CONTROLLER] Successfully got data from: ${endpoint.url}`);
           break;
         }
       } catch (error) {
-        console.log(`[CS2 CONTROLLER] Endpoint failed: ${endpoint.url} - ${error.message}`);
         lastError = error;
         continue;
       }
     }
 
     if (!response || !response.data) {
-      console.log(`[CS2 CONTROLLER] All endpoints failed for ${steamId}`);
       return await getCS2StatsFromGameData(steamId); // Fallback to game data
     }
 
     const data = response.data.playerstats || response.data;
     if (!data) {
-      console.log(`[CS2 CONTROLLER] No valid data structure found for ${steamId}`);
       return await getCS2StatsFromGameData(steamId); // Fallback to game data
     }
 
     const stats = data.stats || [];
     const achievements = data.achievements || [];
     
-    console.log(`[CS2 CONTROLLER] Found ${stats.length} stats and ${achievements.length} achievements for ${steamId}`);
     
     // Process Steam API stats into our format
     const processedStats = processSteamStats(stats, achievements, steamId);
@@ -213,7 +199,6 @@ async function getSteamCS2Stats(steamId) {
     return processedStats;
   } catch (error) {
     if (error.response && error.response.status === 403) {
-      console.log(`[CS2 CONTROLLER] Steam API access denied for ${steamId} - trying alternative approach`);
       return await getCS2StatsFromGameData(steamId); // Fallback to game data
     }
     console.error('[CS2 CONTROLLER] Error fetching Steam CS2 stats:', error.message);
@@ -230,11 +215,9 @@ async function getCS2StatsFromGameData(steamId) {
   try {
     const apiKey = process.env.STEAM_API_KEY;
     if (!apiKey) {
-      console.log('[CS2 CONTROLLER] No Steam API key for game data fallback');
       return null;
     }
 
-    console.log(`[CS2 CONTROLLER] Using game data fallback for: ${steamId}`);
     
     // Get player's game list to extract CS2 playtime
     const response = await axios.get('https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/', {
@@ -249,7 +232,6 @@ async function getCS2StatsFromGameData(steamId) {
     });
 
     if (!response.data || !response.data.response || !response.data.response.games) {
-      console.log(`[CS2 CONTROLLER] No games data found for ${steamId}`);
       return null;
     }
 
@@ -257,11 +239,9 @@ async function getCS2StatsFromGameData(steamId) {
     const cs2Game = games.find(game => game.appid === 730); // CS2/CS:GO App ID
 
     if (!cs2Game) {
-      console.log(`[CS2 CONTROLLER] CS2 not found in ${steamId}'s game library`);
       return null;
     }
 
-    console.log(`[CS2 CONTROLLER] Found CS2 in library: ${cs2Game.playtime_forever} minutes total`);
 
     // Create basic stats based on playtime
     const totalMinutes = cs2Game.playtime_forever || 0;
@@ -332,7 +312,6 @@ async function getCS2StatsFromGameData(steamId) {
  * @returns {Object} Processed statistics
  */
 function processSteamStats(stats, achievements, steamId) {
-  console.log(`[CS2 CONTROLLER] Processing Steam stats for ${steamId}`);
   
   const statMap = {};
   
@@ -489,7 +468,6 @@ function processSteamStats(stats, achievements, steamId) {
   const totalWins = processedStats.totalWins;
   const totalMatches = processedStats.totalMatches;
   
-  console.log(`[CS2 CONTROLLER] Processed Steam stats - K:${totalKills} D:${totalDeaths} W:${totalWins} M:${totalMatches}`);
 
   return processedStats;
 }
@@ -503,22 +481,26 @@ function processSteamStats(stats, achievements, steamId) {
  * @returns {Object} Combined statistics
  */
 function combinePlayerStats(steamData, gsiData, playerProfile, originalSteamId) {
-  console.log(`[CS2 CONTROLLER] combinePlayerStats called with originalSteamId: ${originalSteamId}`);
-  console.log(`[CS2 CONTROLLER] steamData available: ${!!steamData}`);
-  console.log(`[CS2 CONTROLLER] gsiData available: ${!!gsiData}`);
   
-  // Start with Steam historical data as base
+  // Choose a single source of truth to avoid double counting:
+  // - Prefer Steam historical stats when available (public profiles)
+  // - Fallback to GSI aggregates when Steam data is unavailable
+  const source = steamData || gsiData || {};
+
+  const personaName = playerProfile?.personaname || 'Unknown Player';
+  
   const combinedStats = {
     // Player information (use original steamId, not the converted one)
     steamId: originalSteamId || '',
-    personaName: playerProfile?.personaname || 'Unknown Player',
+    personaName: personaName,
+    searchNameLower: String(personaName).toLowerCase(), // For case-insensitive search
     avatarUrl: playerProfile?.avatar || '',
     
-    // Core statistics (prefer GSI data if available, fallback to Steam data)
-    totalKills: (gsiData?.totalKills || 0) + (steamData?.totalKills || 0),
-    totalDeaths: (gsiData?.totalDeaths || 0) + (steamData?.totalDeaths || 0),
-    totalWins: (gsiData?.totalWins || 0) + (steamData?.totalWins || 0),
-    totalMatches: (gsiData?.totalMatches || 0) + (steamData?.totalMatches || 0),
+    // Core statistics (single source to prevent double counting)
+    totalKills: Number(source.totalKills || 0),
+    totalDeaths: Number(source.totalDeaths || 0),
+    totalWins: Number(source.totalWins || 0),
+    totalMatches: Number(source.totalMatches || 0),
     
     // Calculated statistics
     kdRatio: 0,
@@ -526,24 +508,24 @@ function combinePlayerStats(steamData, gsiData, playerProfile, originalSteamId) 
     headshotPercentage: 0,
     
     // Additional statistics
-    headshotKills: (gsiData?.headshotKills || 0) + (steamData?.headshotKills || 0),
-    roundsPlayed: (gsiData?.roundsPlayed || 0) + (steamData?.roundsPlayed || 0),
-    timePlayedSeconds: steamData?.timePlayedSeconds || 0,
+  headshotKills: Number(source.headshotKills || 0),
+  roundsPlayed: Number(source.roundsPlayed || 0),
+  timePlayedSeconds: Number(steamData?.timePlayedSeconds || 0),
     
     // Weapon statistics
-    ak47Kills: (gsiData?.ak47Kills || 0) + (steamData?.ak47Kills || 0),
-    m4a1Kills: (gsiData?.m4a1Kills || 0) + (steamData?.m4a1Kills || 0),
-    awpKills: (gsiData?.awpKills || 0) + (steamData?.awpKills || 0),
+  ak47Kills: Number(steamData?.ak47Kills || 0),
+  m4a1Kills: Number(steamData?.m4a1Kills || 0),
+  awpKills: Number(steamData?.awpKills || 0),
     
     // Bomb and objective statistics
-    bombsPlanted: (gsiData?.bombsPlanted || 0) + (steamData?.bombsPlanted || 0),
-    bombsDefused: (gsiData?.bombsDefused || 0) + (steamData?.bombsDefused || 0),
-    hostagesRescued: (gsiData?.hostagesRescued || 0) + (steamData?.hostagesRescued || 0),
+  bombsPlanted: Number(steamData?.bombsPlanted || 0),
+  bombsDefused: Number(steamData?.bombsDefused || 0),
+  hostagesRescued: Number(steamData?.hostagesRescued || 0),
     
     // Data source information
     dataSources: {
-      steam: steamData ? true : false,
-      gsi: gsiData ? true : false
+      steam: !!steamData,
+      gsi: !!gsiData
     },
     
     lastUpdated: new Date().toISOString()
@@ -551,27 +533,18 @@ function combinePlayerStats(steamData, gsiData, playerProfile, originalSteamId) 
 
   // Calculate derived statistics
   combinedStats.kdRatio = combinedStats.totalDeaths > 0 ? 
-    (combinedStats.totalKills / combinedStats.totalDeaths) : 
-    combinedStats.totalKills;
+    parseFloat((combinedStats.totalKills / combinedStats.totalDeaths).toFixed(2)) : 
+    Number(combinedStats.totalKills.toFixed ? combinedStats.totalKills.toFixed(2) : combinedStats.totalKills);
     
   // Fix win rate calculation - if wins > matches, it's likely round wins
   if (combinedStats.totalMatches > 0) {
-    const actualWins = combinedStats.totalWins > combinedStats.totalMatches ? 
-      Math.floor(combinedStats.totalWins / 16) : combinedStats.totalWins;
-    const actualMatches = Math.max(combinedStats.totalMatches, Math.floor(combinedStats.totalWins / 16));
-    
-    combinedStats.winRate = actualMatches > 0 ? 
-      ((actualWins / actualMatches) * 100) : 0;
-      
-    // Also update the actual values for display
-    combinedStats.totalWins = actualWins;
-    combinedStats.totalMatches = actualMatches;
+    combinedStats.winRate = parseFloat(((combinedStats.totalWins / combinedStats.totalMatches) * 100).toFixed(2));
   } else {
     combinedStats.winRate = 0;
   }
     
   combinedStats.headshotPercentage = combinedStats.totalKills > 0 ? 
-    ((combinedStats.headshotKills / combinedStats.totalKills) * 100) : 
+    parseFloat(((combinedStats.headshotKills / combinedStats.totalKills) * 100).toFixed(2)) : 
     0;
 
   return combinedStats;
@@ -609,7 +582,6 @@ export const getPlayerMatches = asyncHandler(async (req, res) => {
     // Try to get from cache first
     const cachedMatches = cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
     if (cachedMatches) {
-      console.log(`[CS2 MATCHES] Cache hit for ${steamId}`);
       return res.status(200).json(cachedMatches);
     }
 
@@ -643,7 +615,6 @@ export const getPlayerMatches = asyncHandler(async (req, res) => {
     // Cache the data for 2 minutes
     cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, result, 2 * 60 * 1000);
 
-    console.log(`[CS2 MATCHES] Retrieved ${matches.length} matches for ${steamId}`);
     res.status(200).json(result);
   } catch (error) {
     console.error(`[CS2 MATCHES] Error fetching matches for ${steamId}:`, error);
@@ -685,7 +656,6 @@ export const getPlayerWeapons = asyncHandler(async (req, res) => {
     // Try to get from cache first
     const cachedWeapons = cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
     if (cachedWeapons) {
-      console.log(`[CS2 WEAPONS] Cache hit for ${steamId}`);
       return res.status(200).json(cachedWeapons);
     }
 
@@ -703,7 +673,6 @@ export const getPlayerWeapons = asyncHandler(async (req, res) => {
     // Cache the data for 5 minutes
     cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, weapons, 5 * 60 * 1000);
 
-    console.log(`[CS2 WEAPONS] Retrieved ${weapons.length} weapons for ${steamId}`);
     res.status(200).json(weapons);
   } catch (error) {
     console.error(`[CS2 WEAPONS] Error fetching weapons for ${steamId}:`, error);
@@ -745,7 +714,6 @@ export const getPlayerMaps = asyncHandler(async (req, res) => {
     // Try to get from cache first
     const cachedMaps = cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
     if (cachedMaps) {
-      console.log(`[CS2 MAPS] Cache hit for ${steamId}`);
       return res.status(200).json(cachedMaps);
     }
 
@@ -763,7 +731,6 @@ export const getPlayerMaps = asyncHandler(async (req, res) => {
     // Cache the data for 5 minutes
     cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, maps, 5 * 60 * 1000);
 
-    console.log(`[CS2 MAPS] Retrieved ${maps.length} maps for ${steamId}`);
     res.status(200).json(maps);
   } catch (error) {
     console.error(`[CS2 MAPS] Error fetching maps for ${steamId}:`, error);
@@ -774,111 +741,22 @@ export const getPlayerMaps = asyncHandler(async (req, res) => {
   }
 });
 
-/**
- * Setup Game State Integration (GSI) for a player
- * @desc    Generate GSI configuration for a player
- * @route   POST /api/cs2/setup-gsi
- * @access  Private (authenticated users only)
- */
-// export const setupGSI = asyncHandler(async (req, res) => {
-//   const { steamId } = req.body;
 
-//   // Check if user is authenticated
-//   if (!req.user) {
-//     return res.status(401).json({ 
-//       message: 'Authentication required to setup GSI',
-//       error: 'AUTHENTICATION_REQUIRED'
-//     });
-//   }
-
-//   // Validate Steam ID
-//   if (!steamId || steamId.length < 10) {
-//     return res.status(400).json({ 
-//       message: 'Invalid Steam ID provided',
-//       error: 'INVALID_STEAM_ID'
-//     });
-//   }
-
-//   try {
-//     // Generate GSI configuration
-//     const gsiConfig = {
-//       "Steam Vault GSI": {
-//         "uri": `${process.env.BASE_URL}/api/cs2/gsi-data`,
-//         "timeout": "5.0",
-//         "buffer": "0.1",
-//         "throttle": "0.1",
-//         "heartbeat": "30.0",
-//         "auth": {
-//           "steamid": steamId
-//         },
-//         "output": {
-//           "precision_time": "3",
-//           "precision_position": "1",
-//           "precision_vector": "3"
-//         },
-//         "data": {
-//           "buildings": "1",
-//           "provider": "1",
-//           "map": "1",
-//           "round": "1",
-//           "player": "1",
-//           "allplayers": "1",
-//           "bomb": "1",
-//           "phase_countdowns": "1",
-//           "allgrenades": "1",
-//           "weapons": "1"
-//         }
-//       }
-//     };
-
-//     // Save GSI configuration to Firebase
-//     await firebaseService.saveGSIConfig(steamId, gsiConfig);
-
-//     console.log(`[CS2 GSI] Configuration generated for ${steamId}`);
-//     res.status(200).json({
-//       message: 'GSI configuration generated successfully',
-//       config: gsiConfig,
-//       steamId: steamId
-//     });
-//   } catch (error) {
-//     console.error(`[CS2 GSI] Error setting up GSI for ${steamId}:`, error);
-//     res.status(500).json({
-//       message: 'Failed to setup GSI configuration',
-//       error: error.message || 'INTERNAL_SERVER_ERROR'
-//     });
-//   }
-// });
-
-/**
- * Receive GSI data from CS2 client
- * @desc    Receive and process GSI data from CS2
- * @route   POST /api/cs2/gsi-data
- * @access  Public (CS2 client)
- */
 export const receiveGSIData = asyncHandler(async (req, res) => {
   const { steamId } = req.params; // Get steamId from URL params
   const gsiData = req.body;
   
-  console.log(`[CS2 GSI] === GSI Data Received ===`);
-  console.log(`[CS2 GSI] URL SteamId: ${steamId}`);
-  console.log(`[CS2 GSI] Request Headers:`, req.headers);
-  console.log(`[CS2 GSI] Raw Body:`, JSON.stringify(gsiData, null, 2));
 
   try {
     // Log the structure of received data
     if (gsiData) {
-      console.log(`[CS2 GSI] Data Keys:`, Object.keys(gsiData));
       if (gsiData.auth) {
-        console.log(`[CS2 GSI] Auth Data:`, gsiData.auth);
       }
       if (gsiData.provider) {
-        console.log(`[CS2 GSI] Provider:`, gsiData.provider);
       }
       if (gsiData.map) {
-        console.log(`[CS2 GSI] Map:`, gsiData.map.name);
       }
       if (gsiData.player) {
-        console.log(`[CS2 GSI] Player State:`, gsiData.player.state);
       }
     }
 
@@ -914,10 +792,8 @@ export const receiveGSIData = asyncHandler(async (req, res) => {
     }
 
     // Process GSI data
-    console.log(`[CS2 GSI] Processing data for Steam ID: ${finalSteamId}`);
     await firebaseService.processGSIData(finalSteamId, gsiData);
 
-    console.log(`[CS2 GSI] ✅ Data processed successfully for ${finalSteamId}`);
     res.status(200).json({ 
       message: 'GSI data processed successfully',
       steamId: finalSteamId,
@@ -941,10 +817,9 @@ export const receiveGSIData = asyncHandler(async (req, res) => {
  * @access  Private (authenticated users only)
  */
 export const getLeaderboard = asyncHandler(async (req, res) => {
-  const { limit = 10, sortBy = 'kdRatio' } = req.query;
+  const { limit = 10, sortBy = 'kdRatio', refresh } = req.query;
 
   // Note: Leaderboard is public community feature, no authentication required
-  console.log(`[CS2 LEADERBOARD] Public access to leaderboard (${sortBy})`);
   
   // Validate limit parameter
   const maxLimit = 100;
@@ -954,27 +829,88 @@ export const getLeaderboard = asyncHandler(async (req, res) => {
 
   try {
     // Try to get from cache first
-    const cachedLeaderboard = cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
+    const cachedLeaderboard = refresh ? null : cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
     if (cachedLeaderboard) {
-      console.log(`[CS2 LEADERBOARD] Cache hit for ${sortBy}`);
       return res.status(200).json(cachedLeaderboard);
     }
 
-    // Get leaderboard data from Firebase
-    const leaderboard = await firebaseService.getCS2Leaderboard(sortBy, validLimit);
-    
-    if (!leaderboard || leaderboard.length === 0) {
-      return res.status(404).json({ 
+  // Get baseline leaderboard candidates using stored stats in Firestore
+  let leaderboard = await firebaseService.getCS2Leaderboard('kdRatio', Math.max(validLimit, 100));
+    // Enrich and align stats with Profile view (Steam + filtered GSI); exclude casual maps
+    const enriched = [];
+    for (const entry of leaderboard) {
+      const e = { ...entry };
+  // Persona
+      if (!e.personaName || e.personaName === 'Unknown Player') {
+        try {
+          const profile = await steamService.getPlayerProfile(e.steamId);
+          e.personaName = profile?.personaname || e.personaName || `Player ${e.steamId}`;
+          e.avatarUrl = profile?.avatar || e.avatarUrl || '';
+        } catch (_) {}
+      }
+      // Add searchNameLower for case-insensitive search
+      if (!e.searchNameLower && e.personaName) {
+        e.searchNameLower = String(e.personaName).toLowerCase();
+      }
+
+      // Use stored summary first; enrich minimally if needed
+      const steamKills = Number(e.totalKills || 0);
+      const steamDeaths = Number(e.totalDeaths || 0);
+      const steamMatches = Number(e.totalMatches || 0);
+      const steamWins = Number(e.totalWins || 0);
+      const storedHS = e.headshotPercentage;
+
+      // Compute kd if missing or stale
+      e.kdRatio = steamDeaths > 0 ? Number((steamKills / steamDeaths).toFixed(2)) : Number(steamKills.toFixed ? steamKills.toFixed(2) : steamKills);
+      // Compute winRate if missing
+      if (e.winRate == null || Number.isNaN(Number(e.winRate))) {
+        e.winRate = steamMatches > 0 ? Number(((steamWins / steamMatches) * 100).toFixed(1)) : 0;
+      }
+      // Compute headshot % if missing
+      if (storedHS == null || Number.isNaN(Number(storedHS))) {
+        const hsKills = Number(e.headshotKills || 0);
+        e.headshotPercentage = steamKills > 0 ? Number(((hsKills / steamKills) * 100).toFixed(1)) : 0;
+      }
+
+      // Keep totalMatches from stored profile summary (Statistics Overview), as requested
+
+      // Ensure persona/avatars exist; fetch only if missing
+      if ((!e.personaName || !e.avatarUrl) && e.steamId) {
+        try {
+          const profile = await steamService.getPlayerProfile(e.steamId);
+          e.personaName = e.personaName || profile?.personaname || `Player ${e.steamId}`;
+          e.avatarUrl = e.avatarUrl || profile?.avatar || '';
+        } catch (_) {}
+      }
+
+      e.dataSources = { steam: true, gsi: typeof e.gsiTotalMatches === 'number' && e.gsiTotalMatches > 0 };
+
+      enriched.push(e);
+    }
+
+    // If Firebase returned nothing (e.g., sorting by a missing field), avoid 404 by returning computed results when any enrichment exists
+    if (!enriched || enriched.length === 0) {
+      return res.status(404).json({
         message: 'No CS2 leaderboard data found. Players need to setup GSI and play matches to appear on the leaderboard.',
         error: 'NO_LEADERBOARD_DATA'
       });
     }
 
-    // Cache the data for 10 minutes
-    cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, leaderboard, 10 * 60 * 1000);
+    // Re-sort in-memory using computed values to ensure correctness for headshotPercentage and totalKills
+    const sorters = {
+      kdRatio: (a, b) => (Number(b.kdRatio||0) - Number(a.kdRatio||0)),
+      totalKills: (a, b) => (Number(b.totalKills||0) - Number(a.totalKills||0)),
+      winRate: (a, b) => (Number(b.winRate||0) - Number(a.winRate||0)),
+      headshotPercentage: (a, b) => (Number(b.headshotPercentage||0) - Number(a.headshotPercentage||0)),
+      totalMVPs: (a, b) => (Number(b.totalMVPs||0) - Number(a.totalMVPs||0))
+    };
+    const sorter = sorters[sortBy] || sorters.kdRatio;
+    const sorted = enriched.sort(sorter).slice(0, validLimit);
 
-    console.log(`[CS2 LEADERBOARD] Retrieved ${leaderboard.length} entries`);
-    res.status(200).json(leaderboard);
+    // Cache the data for 10 minutes
+  if (!refresh) cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, sorted, 10 * 60 * 1000);
+
+    res.status(200).json(sorted);
   } catch (error) {
     console.error('[CS2 LEADERBOARD] Error fetching leaderboard:', error);
     res.status(500).json({
@@ -991,10 +927,9 @@ export const getLeaderboard = asyncHandler(async (req, res) => {
  * @access  Private (authenticated users only)
  */
 export const searchPlayers = asyncHandler(async (req, res) => {
-  const { query, limit = 10 } = req.query;
+  const { query, limit = 10, refresh } = req.query;
 
   // Note: Player search is public community feature, no authentication required
-  console.log(`[CS2 SEARCH] Public search for: ${query}`);
 
   // Validate search query
   if (!query || query.length < 2) {
@@ -1012,14 +947,58 @@ export const searchPlayers = asyncHandler(async (req, res) => {
 
   try {
     // Try to get from cache first
-    const cachedResults = cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
+    const cachedResults = refresh ? null : cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
     if (cachedResults) {
-      console.log(`[CS2 SEARCH] Cache hit for query: ${query}`);
       return res.status(200).json(cachedResults);
     }
 
     // Search players in Firebase
-    const searchResults = await firebaseService.searchCS2Players(query, parseInt(limit));
+    let searchResults = await firebaseService.searchCS2Players(query, parseInt(limit));
+    // Enrich results and align totals/KD like leaderboard
+    const enriched = [];
+    for (const r of searchResults) {
+      const e = { ...r };
+      // Persona
+      if (!e.personaName || e.personaName === 'Unknown Player') {
+        try {
+          const profile = await steamService.getPlayerProfile(e.steamId);
+          e.personaName = profile?.personaname || e.personaName || `Player ${e.steamId}`;
+          e.avatarUrl = profile?.avatar || e.avatarUrl || '';
+        } catch (_) {}
+      }
+      // Add searchNameLower for case-insensitive search
+      if (!e.searchNameLower && e.personaName) {
+        e.searchNameLower = String(e.personaName).toLowerCase();
+      }
+      // Steam preferred for KD; GSI preferred for matches count
+      let steamStats = null;
+      try { steamStats = await getSteamCS2Stats(e.steamId); } catch (_) {}
+      let gsiMaps = [];
+      try { gsiMaps = await firebaseService.getPlayerMaps(e.steamId); } catch (_) { gsiMaps = []; }
+      const gsiMatches = gsiMaps.reduce((s, m) => s + (Number(m.totalMatches || 0)), 0);
+      const gsiWins = gsiMaps.reduce((s, m) => s + (Number(m.wins || 0)), 0);
+      if (steamStats) {
+        const steamKills = Number(steamStats.totalKills || 0);
+        const steamDeaths = Number(steamStats.totalDeaths || 0);
+        const steamMatches = Number(steamStats.totalMatches || 0);
+        const steamWins = Number(steamStats.totalWins || 0);
+        e.kdRatio = steamDeaths > 0 ? Number((steamKills / steamDeaths).toFixed(2)) : Number(steamKills.toFixed(2));
+        e.steamTotalMatches = steamMatches;
+        e.gsiTotalMatches = gsiMatches;
+        e.totalMatches = steamMatches > 0 ? steamMatches : gsiMatches;
+        e.winRate = steamMatches > 0 ? Number(((steamWins / steamMatches) * 100).toFixed(1)) : 0;
+      } else {
+        const gsiKills = Number(e.totalKills || 0);
+        const gsiDeaths = Number(e.totalDeaths || 0);
+        e.kdRatio = gsiDeaths > 0 ? Number((gsiKills / gsiDeaths).toFixed(2)) : Number((gsiKills || 0).toFixed ? (gsiKills).toFixed(2) : gsiKills);
+        e.gsiTotalMatches = gsiMatches;
+        e.steamTotalMatches = 0;
+        e.totalMatches = gsiMatches;
+        e.winRate = gsiMatches > 0 ? Number(((gsiWins / gsiMatches) * 100).toFixed(1)) : 0;
+      }
+      e.dataSources = { steam: !!steamStats, gsi: (gsiMaps && gsiMaps.length > 0) };
+      enriched.push(e);
+    }
     
     if (!searchResults || searchResults.length === 0) {
       return res.status(404).json({ 
@@ -1030,10 +1009,9 @@ export const searchPlayers = asyncHandler(async (req, res) => {
     }
 
     // Cache the data for 5 minutes
-    cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, searchResults, 5 * 60 * 1000);
+  if (!refresh) cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, enriched, 5 * 60 * 1000);
 
-    console.log(`[CS2 SEARCH] Found ${searchResults.length} players for query: ${query}`);
-    res.status(200).json(searchResults);
+    res.status(200).json(enriched);
   } catch (error) {
     console.error(`[CS2 SEARCH] Error searching players for query: ${query}:`, error);
     res.status(500).json({
@@ -1053,7 +1031,6 @@ export const getRecentActivity = asyncHandler(async (req, res) => {
   const { limit = 20 } = req.query;
 
   // Note: Recent activity is public community feature, no authentication required
-  console.log(`[CS2 ACTIVITY] Public access to recent activity`);
   
   // Validate limit parameter
   const maxLimit = 50;
@@ -1065,12 +1042,23 @@ export const getRecentActivity = asyncHandler(async (req, res) => {
     // Try to get from cache first
     const cachedActivity = cacheService.get(CACHE_TYPES.CS2_DATA, cacheKey);
     if (cachedActivity) {
-      console.log(`[CS2 ACTIVITY] Cache hit for recent activity`);
       return res.status(200).json(cachedActivity);
     }
 
     // Get recent activity from Firebase
-    const recentActivity = await firebaseService.getCS2RecentActivity(validLimit);
+    let recentActivity = await firebaseService.getCS2RecentActivity(validLimit);
+    const enriched = [];
+    for (const a of recentActivity) {
+      const e = { ...a };
+      if (!e.personaName && !e.displayName && e.steamId) {
+        try {
+          const profile = await steamService.getPlayerProfile(e.steamId);
+          e.personaName = profile?.personaname || `Player ${e.steamId}`;
+          e.avatarUrl = profile?.avatar || e.avatarUrl || '';
+        } catch (_) {}
+      }
+      enriched.push(e);
+    }
     
     if (!recentActivity || recentActivity.length === 0) {
       return res.status(404).json({ 
@@ -1080,10 +1068,9 @@ export const getRecentActivity = asyncHandler(async (req, res) => {
     }
 
     // Cache the data for 2 minutes
-    cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, recentActivity, 2 * 60 * 1000);
+    cacheService.set(CACHE_TYPES.CS2_DATA, cacheKey, enriched, 2 * 60 * 1000);
 
-    console.log(`[CS2 ACTIVITY] Retrieved ${recentActivity.length} recent activities`);
-    res.status(200).json(recentActivity);
+    res.status(200).json(enriched);
   } catch (error) {
     console.error('[CS2 ACTIVITY] Error fetching recent activity:', error);
     res.status(500).json({
@@ -1109,7 +1096,6 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
     });
   }
 
-  console.log(`[CS2 CONTROLLER] Getting comprehensive CS2 profile data for: ${steamId}`);
   
   try {
     // Get Steam profile information
@@ -1126,7 +1112,7 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
     
     // Get recent matches and cached data from Firebase
     const [matches, mapStats, weaponStats] = await Promise.all([
-      firebaseService.getPlayerMatches(steamId),
+      firebaseService.getPlayerMatches(steamId, 100),
       firebaseService.getPlayerMaps(steamId), 
       firebaseService.getPlayerWeapons(steamId)
     ]);
@@ -1182,8 +1168,8 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
       // Performance trends
       trends: trends,
       
-      // Recent matches
-      recentMatches: matches.slice(0, 10),
+  // Recent matches (already filtered & sorted)
+  recentMatches: matches.slice(0, 10),
       
       // Map performance
       mapPerformance: mapStats,
@@ -1202,8 +1188,35 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
       }
     };
     
-    console.log(`[CS2 CONTROLLER] Comprehensive profile data prepared for ${steamId}`);
     
+    // Persist a compact summary to Firestore for leaderboard/search usage
+    try {
+      const gsiTotalMatches = Array.isArray(mapStats) ? mapStats.reduce((s, m) => s + (Number(m.totalMatches||0)), 0) : 0;
+      const summary = {
+        steamId,
+        personaName: steamProfile.personaname || profileData.profile.personaName,
+        avatarUrl: steamProfile.avatarfull || profileData.profile.avatarUrl,
+        // Prefer Steam-based overview numbers (already in combinedStats)
+        totalKills: Number(combinedStats.totalKills || 0),
+        totalDeaths: Number(combinedStats.totalDeaths || 0),
+        totalWins: Number(combinedStats.totalWins || 0),
+        totalMatches: Number(steamStats?.totalMatches ?? combinedStats.totalMatches ?? 0),
+        kdRatio: Number(combinedStats.kdRatio || 0),
+        winRate: Number(combinedStats.winRate || 0),
+        headshotKills: Number(combinedStats.headshotKills || 0),
+        headshotPercentage: Number(combinedStats.headshotPercentage || 0),
+        gsiTotalMatches: Number(gsiTotalMatches || 0),
+        dataSources: { steam: !!steamStats, gsi: (Array.isArray(matches) && matches.length>0) || (Array.isArray(mapStats) && mapStats.length>0) }
+      };
+      // Guard against NaN
+      Object.keys(summary).forEach(k => {
+        if (typeof summary[k] === 'number' && (!isFinite(summary[k]) || isNaN(summary[k]))) summary[k] = 0;
+      });
+      await firebaseService.savePlayerStats(steamId, summary);
+    } catch (persistErr) {
+      console.warn('[CS2 CONTROLLER] Could not persist profile summary for leaderboard:', persistErr?.message || persistErr);
+    }
+
     res.json(profileData);
   } catch (error) {
     console.error('[CS2 CONTROLLER] Error getting CS2 profile data:', error);
@@ -1236,7 +1249,6 @@ async function getCS2GameInfo(steamId) {
     const gameInfoCacheKey = `cs2_game_info_${steamId}`;
     const cachedGameInfo = cacheService.get(CACHE_TYPES.CS2_DATA, gameInfoCacheKey);
     if (cachedGameInfo) {
-      console.log(`[CS2 CONTROLLER] Cache hit for game info: ${steamId}`);
       return cachedGameInfo;
     }
 
@@ -1300,7 +1312,6 @@ async function getCS2GameInfo(steamId) {
         achievementCount = achievementResponse.data.playerstats.achievements.filter(a => a.achieved).length;
       }
     } catch (error) {
-      console.log(`[CS2 CONTROLLER] Could not get achievements for ${steamId}: ${error.message}`);
     }
 
     const gameInfo = {
@@ -1351,7 +1362,7 @@ function calculateEnhancedStats(baseStats, matches, mapStats, weaponStats) {
     // Calculate recent performance
     const recentKills = recentMatches.reduce((sum, match) => sum + (match.kills || 0), 0);
     const recentDeaths = recentMatches.reduce((sum, match) => sum + (match.deaths || 0), 0);
-    const recentWins = recentMatches.filter(match => match.result === 'win').length;
+  const recentWins = recentMatches.filter(match => match.result === 'Win').length;
     
     enhanced.recentKD = recentDeaths > 0 ? parseFloat((recentKills / recentDeaths).toFixed(2)) : recentKills;
     enhanced.recentWinRate = recentMatches.length > 0 ? parseFloat(((recentWins / recentMatches.length) * 100).toFixed(2)) : 0;
@@ -1408,67 +1419,144 @@ async function estimateCS2Rank(steamId, matches) {
       return {
         estimatedRank: 'Unranked',
         confidence: 0,
-        basedOnMatches: 0
+        basedOnMatches: 0,
+        competitive: {
+          estimatedRank: 'Unranked',
+          confidence: 0,
+          basedOnMatches: 0,
+          rankScore: 0,
+          winRate: 0,
+          avgKD: 0,
+          avgDamage: 0
+        },
+        premier: {
+          rating: null,
+          isAvailable: false,
+          matchesPlayed: 0,
+          status: 'Unranked'
+        }
       };
     }
 
-    const recentMatches = matches.slice(0, 50);
-    const wins = recentMatches.filter(match => match.result === 'win').length;
-    const totalMatches = recentMatches.length;
-    const winRate = totalMatches > 0 ? (wins / totalMatches) * 100 : 0;
-    
-    const avgKD = recentMatches.reduce((sum, match) => {
-      const deaths = match.deaths || 0;
-      return sum + (deaths > 0 ? (match.kills || 0) / deaths : (match.kills || 0));
-    }, 0) / recentMatches.length;
-    
-    const avgDamage = recentMatches.reduce((sum, match) => sum + (match.damage || 0), 0) / recentMatches.length;
-    
-    // Simple rank estimation algorithm
-    let rankScore = 0;
-    rankScore += winRate * 0.4; // Win rate weight
-    rankScore += Math.min(avgKD * 20, 40); // KD weight (capped at 2.0 KD)
-    rankScore += Math.min(avgDamage / 10, 20); // Damage weight
-    
-    const ranks = [
-      { name: 'Silver I', min: 0, max: 10 },
-      { name: 'Silver II', min: 10, max: 15 },
-      { name: 'Silver III', min: 15, max: 20 },
-      { name: 'Silver IV', min: 20, max: 25 },
-      { name: 'Silver Elite', min: 25, max: 30 },
-      { name: 'Silver Elite Master', min: 30, max: 35 },
-      { name: 'Gold Nova I', min: 35, max: 40 },
-      { name: 'Gold Nova II', min: 40, max: 45 },
-      { name: 'Gold Nova III', min: 45, max: 50 },
-      { name: 'Gold Nova Master', min: 50, max: 55 },
-      { name: 'Master Guardian I', min: 55, max: 60 },
-      { name: 'Master Guardian II', min: 60, max: 65 },
-      { name: 'Master Guardian Elite', min: 65, max: 70 },
-      { name: 'Distinguished Master Guardian', min: 70, max: 75 },
-      { name: 'Legendary Eagle', min: 75, max: 80 },
-      { name: 'Legendary Eagle Master', min: 80, max: 85 },
-      { name: 'Supreme Master First Class', min: 85, max: 90 },
-      { name: 'The Global Elite', min: 90, max: 100 }
-    ];
-    
-    const estimatedRank = ranks.find(rank => rankScore >= rank.min && rankScore <= rank.max) || ranks[0];
-    const confidence = Math.min(totalMatches * 2, 100); // Confidence based on match count
-    
+    // Helper to detect Premier-style final scores (MR12 with OT or 15-15 tie)
+    const isPremierMatch = (m) => {
+      const s = Number(m.score ?? m.teamScore ?? 0);
+      const o = Number(m.opponentScore ?? m.opScore ?? 0);
+      const isTie = s === 15 && o === 15;
+      return isTie || Math.max(s, o) >= 16;
+    };
+    const isCompetitiveMatch = (m) => {
+      const s = Number(m.score ?? m.teamScore ?? 0);
+      const o = Number(m.opponentScore ?? m.opScore ?? 0);
+      const maxScore = Math.max(s, o);
+      const isTie = s === 15 && o === 15;
+      return maxScore >= 13 && maxScore < 16 && !isTie;
+    };
+
+    const premierMatches = matches.filter(isPremierMatch);
+    const competitiveMatches = matches.filter(isCompetitiveMatch);
+
+    const computeEstimate = (list) => {
+      if (!list || list.length === 0) {
+        return {
+          estimatedRank: 'Unranked',
+          confidence: 0,
+          basedOnMatches: 0,
+          rankScore: 0,
+          winRate: 0,
+          avgKD: 0,
+          avgDamage: 0
+        };
+      }
+      const recent = list.slice(0, 50);
+      const wins = recent.filter(m => m.result === 'Win').length;
+      const totalMatches = recent.length;
+      const winRate = totalMatches > 0 ? (wins / totalMatches) * 100 : 0;
+      const avgKD = recent.reduce((sum, m) => {
+        const deaths = m.deaths || 0;
+        return sum + (deaths > 0 ? (m.kills || 0) / deaths : (m.kills || 0));
+      }, 0) / recent.length;
+      const avgDamage = recent.reduce((sum, m) => sum + (m.damage || 0), 0) / recent.length;
+
+      let rankScore = 0;
+      rankScore += winRate * 0.4; // Win rate weight
+      rankScore += Math.min(avgKD * 20, 40); // KD weight (capped at 2.0 KD)
+      rankScore += Math.min(avgDamage / 10, 20); // Damage weight
+
+      const ranks = [
+        { name: 'Silver I', min: 0, max: 10 },
+        { name: 'Silver II', min: 10, max: 15 },
+        { name: 'Silver III', min: 15, max: 20 },
+        { name: 'Silver IV', min: 20, max: 25 },
+        { name: 'Silver Elite', min: 25, max: 30 },
+        { name: 'Silver Elite Master', min: 30, max: 35 },
+        { name: 'Gold Nova I', min: 35, max: 40 },
+        { name: 'Gold Nova II', min: 40, max: 45 },
+        { name: 'Gold Nova III', min: 45, max: 50 },
+        { name: 'Gold Nova Master', min: 50, max: 55 },
+        { name: 'Master Guardian I', min: 55, max: 60 },
+        { name: 'Master Guardian II', min: 60, max: 65 },
+        { name: 'Master Guardian Elite', min: 65, max: 70 },
+        { name: 'Distinguished Master Guardian', min: 70, max: 75 },
+        { name: 'Legendary Eagle', min: 75, max: 80 },
+        { name: 'Legendary Eagle Master', min: 80, max: 85 },
+        { name: 'Supreme Master First Class', min: 85, max: 90 },
+        { name: 'The Global Elite', min: 90, max: 100 }
+      ];
+      const estimated = ranks.find(r => rankScore >= r.min && rankScore <= r.max) || ranks[0];
+      const confidence = Math.min(totalMatches * 2, 100);
+      return {
+        estimatedRank: estimated.name,
+        confidence: parseFloat(confidence.toFixed(1)),
+        basedOnMatches: totalMatches,
+        rankScore: parseFloat(rankScore.toFixed(1)),
+        winRate: parseFloat(winRate.toFixed(1)),
+        avgKD: parseFloat(avgKD.toFixed(2)),
+        avgDamage: parseFloat(avgDamage.toFixed(1))
+      };
+    };
+
+    const competitive = computeEstimate(competitiveMatches.length ? competitiveMatches : matches);
+    const premierInfo = {
+      rating: null, // CS2 Premier CS Rating is not exposed via Steam Web API or GSI
+      isAvailable: false,
+      matchesPlayed: premierMatches.length,
+      status: premierMatches.length < 10 ? 'Unranked' : 'Unknown'
+    };
+
+    // Preserve legacy top-level fields for compatibility
     return {
-      estimatedRank: estimatedRank.name,
-      confidence: parseFloat(confidence.toFixed(1)),
-      basedOnMatches: totalMatches,
-      rankScore: parseFloat(rankScore.toFixed(1)),
-      winRate: parseFloat(winRate.toFixed(1)),
-      avgKD: parseFloat(avgKD.toFixed(2)),
-      avgDamage: parseFloat(avgDamage.toFixed(1))
+      estimatedRank: competitive.estimatedRank,
+      confidence: competitive.confidence,
+      basedOnMatches: competitive.basedOnMatches,
+      rankScore: competitive.rankScore,
+      winRate: competitive.winRate,
+      avgKD: competitive.avgKD,
+      avgDamage: competitive.avgDamage,
+      competitive,
+      premier: premierInfo
     };
   } catch (error) {
     console.error('[CS2 CONTROLLER] Error estimating rank:', error);
     return {
       estimatedRank: 'Unranked',
       confidence: 0,
-      basedOnMatches: 0
+      basedOnMatches: 0,
+      competitive: {
+        estimatedRank: 'Unranked',
+        confidence: 0,
+        basedOnMatches: 0,
+        rankScore: 0,
+        winRate: 0,
+        avgKD: 0,
+        avgDamage: 0
+      },
+      premier: {
+        rating: null,
+        isAvailable: false,
+        matchesPlayed: 0,
+        status: 'Unranked'
+      }
     };
   }
 }
@@ -1512,8 +1600,8 @@ function calculatePerformanceTrends(matches) {
       return sum + (deaths > 0 ? (match.kills || 0) / deaths : (match.kills || 0));
     }, 0) / olderMatches.length;
     
-    const recentWinRate = (recentMatches.filter(match => match.result === 'win').length / recentMatches.length) * 100;
-    const olderWinRate = (olderMatches.filter(match => match.result === 'win').length / olderMatches.length) * 100;
+  const recentWinRate = (recentMatches.filter(match => match.result === 'Win').length / recentMatches.length) * 100;
+  const olderWinRate = (olderMatches.filter(match => match.result === 'Win').length / olderMatches.length) * 100;
     
     const recentDamage = recentMatches.reduce((sum, match) => sum + (match.damage || 0), 0) / recentMatches.length;
     const olderDamage = olderMatches.reduce((sum, match) => sum + (match.damage || 0), 0) / olderMatches.length;
@@ -1610,7 +1698,6 @@ async function getSteamProfile(steamId) {
   try {
     const apiKey = process.env.STEAM_API_KEY;
     if (!apiKey) {
-      console.log('[CS2 CONTROLLER] No Steam API key for profile lookup');
       return null;
     }
 
@@ -1618,7 +1705,6 @@ async function getSteamProfile(steamId) {
     const profileCacheKey = `steam_profile_${steamId}`;
     const cachedProfile = cacheService.get(CACHE_TYPES.CS2_DATA, profileCacheKey);
     if (cachedProfile) {
-      console.log(`[CS2 CONTROLLER] Cache hit for Steam profile: ${steamId}`);
       return cachedProfile;
     }
 
@@ -1628,11 +1714,10 @@ async function getSteamProfile(steamId) {
         steamids: steamId,
         format: 'json'
       },
-      timeout: 10000
+      timeout: 15000  // Increased from 10000 - Steam API can be slow
     });
 
     if (!response.data || !response.data.response || !response.data.response.players || response.data.response.players.length === 0) {
-      console.log(`[CS2 CONTROLLER] No Steam profile found for ${steamId}`);
       return null;
     }
 

@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchPlayerPerformanceSummary,fetchSteamProfile } from '../../features/stats/statsSlice';
+import { formatPercent } from '../../utils/formatters';
 import { FaArrowUp, FaArrowDown, FaEquals, FaChartLine, FaUsers, FaGamepad } from 'react-icons/fa';
 
-export default function PerformanceSummary({ steamId }) {
+const PerformanceSummary = React.memo(({ steamId }) => {
   const dispatch = useDispatch();
   const { data: summary, status, error } = useSelector((state) => state.stats.performanceSummary);
   const { data: steamData } = useSelector((state) => state.stats.steamProfile);
@@ -55,7 +56,7 @@ export default function PerformanceSummary({ steamId }) {
   // Helper function to format percentage
   const formatPercentage = (value) => {
     if (value === undefined || value === null) return 'N/A';
-    return `${(value * 100).toFixed(1)}%`;
+    return formatPercent(value * 100);
   };
 
   return (
@@ -68,7 +69,6 @@ export default function PerformanceSummary({ steamId }) {
           <div className="flex items-center mb-2">
             <FaGamepad className="text-blue-400 mr-2 text-sm sm:text-base" />
             <h4 className="text-base sm:text-lg font-medium">Overall Stats</h4>
-            {console.log("Summary : "+JSON.stringify(summary))}
           </div>
           <div className="space-y-2">
             <div className="flex justify-between text-sm sm:text-base">
@@ -92,7 +92,7 @@ export default function PerformanceSummary({ steamId }) {
         <div className="bg-gray-700 rounded-lg p-3 sm:p-4">
           <div className="flex items-center mb-2">
             <FaChartLine className="text-green-400 mr-2 text-sm sm:text-base" />
-            <h4 className="text-base sm:text-lg font-medium">Recent 1000games Performance</h4>
+            <h4 className="text-base sm:text-lg font-medium">Recent 1000 games Performance</h4>
           </div>
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm sm:text-base">
@@ -238,4 +238,8 @@ export default function PerformanceSummary({ steamId }) {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => prevProps.steamId === nextProps.steamId);
+
+PerformanceSummary.displayName = 'PerformanceSummary';
+
+export default PerformanceSummary;

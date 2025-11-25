@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchBehaviorMetrics } from '../../features/stats/statsSlice';
 
-export default function PlayerBehavior({ steamId }) {
+const PlayerBehavior = React.memo(({ steamId }) => {
   const dispatch = useDispatch();
   const { data: metrics, status, error } = useSelector((state) => state.stats.behaviorMetrics);
 
@@ -105,4 +105,8 @@ export default function PlayerBehavior({ steamId }) {
       )}
     </div>
   );
-}
+}, (prevProps, nextProps) => prevProps.steamId === nextProps.steamId);
+
+PlayerBehavior.displayName = 'PlayerBehavior';
+
+export default PlayerBehavior;

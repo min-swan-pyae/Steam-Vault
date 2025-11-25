@@ -36,28 +36,7 @@ router.post('/notifications/price-drop', requireAuth, async (req, res) => {
 });
 
 // Test market trend notification
-router.post('/notifications/market-trend', requireAuth, async (req, res) => {
-  try {
-    const steamId = req.user.steamId;
-    
-    await firebaseService.createNotification(steamId, {
-      type: 'market_trend',
-      title: 'Weekly Market Trends',
-      message: 'CS2 knife prices are trending up 15% this week. Popular items: Karambit, M9 Bayonet.',
-      data: {
-        trendType: 'weekly',
-        category: 'knives',
-        percentageChange: 15,
-        url: '/marketplace?search=Karambit&appid=730'
-      }
-    });
-
-    res.json({ success: true, message: 'Market trend notification created and sent!' });
-  } catch (error) {
-    console.error('[TEST] Error creating market trend notification:', error);
-    res.status(500).json({ error: 'Failed to create notification' });
-  }
-});
+// (removed market trend test route)
 
 // Test forum activity notification
 router.post('/notifications/forum-activity', requireAuth, async (req, res) => {
@@ -65,7 +44,7 @@ router.post('/notifications/forum-activity', requireAuth, async (req, res) => {
     const steamId = req.user.steamId;
     
     await firebaseService.createNotification(steamId, {
-      type: 'forum_activity',
+      type: 'forum_comment', // normalized type name
       title: 'New Reply to Your Post',
       message: 'Someone replied to your post "Best CS2 Settings for Competitive Play"',
       data: {
@@ -84,33 +63,10 @@ router.post('/notifications/forum-activity', requireAuth, async (req, res) => {
 });
 
 // Test weekly digest notification
-router.post('/notifications/weekly-digest', requireAuth, async (req, res) => {
-  try {
-    const steamId = req.user.steamId;
-    
-    await firebaseService.createNotification(steamId, {
-      type: 'weekly_digest',
-      title: 'Your Weekly Steam Vault Digest',
-      message: 'This week: 12 matches played, 3 new forum posts, 2 watchlist alerts. Your K/D improved by 0.15!',
-      data: {
-        weekStart: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        weekEnd: new Date().toISOString(),
-        stats: {
-          matchesPlayed: 12,
-          forumPosts: 3,
-          watchlistAlerts: 2,
-          kdImprovement: 0.15
-        },
-        url: '/dashboard/weekly-summary'
-      }
-    });
+// (removed weekly digest test route)
 
-    res.json({ success: true, message: 'Weekly digest notification created and sent!' });
-  } catch (error) {
-    console.error('[TEST] Error creating weekly digest notification:', error);
-    res.status(500).json({ error: 'Failed to create notification' });
-  }
-});
+// Trigger market trends job manually (testing only)
+// (removed job trigger routes)
 
 // Get user's notifications for testing
 router.get('/notifications', requireAuth, async (req, res) => {
@@ -119,10 +75,11 @@ router.get('/notifications', requireAuth, async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const includeRead = req.query.includeRead === 'true';
     
-    const notifications = await firebaseService.getUserNotifications(steamId, limit, includeRead);
+    const { notifications, unreadTotal } = await firebaseService.getUserNotifications(steamId, limit, includeRead);
     
     res.json({ 
       success: true, 
+      unreadTotal,
       notifications: notifications.map(n => ({
         ...n,
         createdAt: n.createdAt?.toDate?.() || n.createdAt

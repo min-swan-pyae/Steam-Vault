@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { fetchEnhancedMetaAnalysis } from '../../features/stats/statsSlice';
+import { formatPercent } from '../../utils/formatters';
 import { FaChartLine, FaChartBar, FaUsers, FaGamepad, FaSearch, FaFilter } from 'react-icons/fa';
 
 export default function EnhancedMetaAnalysis() {
@@ -53,7 +54,7 @@ export default function EnhancedMetaAnalysis() {
   // Helper function to format percentage
   const formatPercentage = (value) => {
     if (value === undefined || value === null) return 'N/A';
-    return `${(value * 100).toFixed(1)}%`;
+    return formatPercent(value * 100);
   };
 
   // Filter and sort heroes based on user selections

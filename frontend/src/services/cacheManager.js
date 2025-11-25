@@ -31,7 +31,6 @@ class CacheManager {
 
     try {
       // Initialize all cache systems
-      console.log('[CACHE MANAGER] Initializing comprehensive cache system...');
 
       // Start performance monitoring
       this.startPerformanceMonitoring();
@@ -43,7 +42,6 @@ class CacheManager {
       await this.preloadCriticalData();
 
       this.isInitialized = true;
-      console.log('[CACHE MANAGER] Initialization complete');
 
       // Emit initialization event
       this.emit('initialized');
@@ -61,17 +59,16 @@ class CacheManager {
     // Preload hero data if user has accessed it recently
     const recentHeroAccess = localStorage.getItem('recent_hero_access');
     if (recentHeroAccess) {
-      preloadTasks.push(this.preloadHeroData());
+      // preloadTasks.push(this.preloadHeroData()); // Commented out - endpoint doesn't exist
     }
 
     // Preload meta data
-    preloadTasks.push(this.preloadMetaData());
+    // preloadTasks.push(this.preloadMetaData()); // Commented out - endpoint doesn't exist
 
     // Preload critical images
-    preloadTasks.push(imageCache.preloadCriticalImages());
+    // preloadTasks.push(imageCache.preloadCriticalImages()); // Commented out - method doesn't exist
 
     await Promise.allSettled(preloadTasks);
-    console.log('[CACHE MANAGER] Critical data preloading complete');
   }
 
   /**
@@ -79,10 +76,10 @@ class CacheManager {
    */
   async preloadHeroData() {
     try {
-      const { data } = await store.dispatch(steamVaultApi.endpoints.getHeroes.initiate());
-      if (data) {
-        console.log('[CACHE MANAGER] Hero data preloaded');
-      }
+      // Endpoint doesn't exist in API - commented out
+      // const { data } = await store.dispatch(steamVaultApi.endpoints.getHeroes.initiate());
+      // if (data) {
+      // }
     } catch (error) {
       console.error('[CACHE MANAGER] Hero data preload failed:', error);
     }
@@ -93,10 +90,10 @@ class CacheManager {
    */
   async preloadMetaData() {
     try {
-      const { data } = await store.dispatch(steamVaultApi.endpoints.getMetaData.initiate());
-      if (data) {
-        console.log('[CACHE MANAGER] Meta data preloaded');
-      }
+      // Endpoint doesn't exist in API - commented out
+      // const { data } = await store.dispatch(steamVaultApi.endpoints.getMetaData.initiate());
+      // if (data) {
+      // }
     } catch (error) {
       console.error('[CACHE MANAGER] Meta data preload failed:', error);
     }
@@ -144,7 +141,6 @@ class CacheManager {
     // Listen for storage events to sync across tabs
     window.addEventListener('storage', (e) => {
       if (e.key && e.key.startsWith('api_cache:')) {
-        console.log('[CACHE MANAGER] Cache updated in another tab:', e.key);
         this.emit('cross-tab-update', { key: e.key, newValue: e.newValue });
       }
     });
@@ -156,7 +152,6 @@ class CacheManager {
         const usedMemoryMB = memInfo.usedJSHeapSize / 1024 / 1024;
         
         if (usedMemoryMB > 100) { // If using more than 100MB
-          console.log('[CACHE MANAGER] High memory usage detected, cleaning cache');
           this.performMaintenanceCleanup();
         }
       }, 30000); // Check every 30 seconds
@@ -167,16 +162,23 @@ class CacheManager {
    * Perform maintenance cleanup when memory is high
    */
   performMaintenanceCleanup() {
-    // Clean old API cache entries
-    apiCache.cleanup();
-    
-    // Clean image cache
-    imageCache.cleanup();
-    
-    // Clear old RTK Query cache entries
-    store.dispatch(steamVaultApi.util.resetApiState());
-    
-    console.log('[CACHE MANAGER] Maintenance cleanup completed');
+    try {
+      // Clean old API cache entries
+      if (apiCache && typeof apiCache.cleanup === 'function') {
+        apiCache.cleanup();
+      }
+      
+      // Clean image cache
+      if (imageCache && typeof imageCache.cleanup === 'function') {
+        imageCache.cleanup();
+      }
+      
+      // Don't reset RTK Query state as it may affect active requests
+      // store.dispatch(steamVaultApi.util.resetApiState());
+      
+    } catch (error) {
+      console.error('[CACHE MANAGER] Cleanup error:', error);
+    }
   }
 
   /**
@@ -185,7 +187,6 @@ class CacheManager {
   async warmCache(userContext = {}) {
     const { playerId, recentHeroes, favoriteGameMode } = userContext;
     
-    console.log('[CACHE MANAGER] Starting smart cache warming...');
     
     const warmupTasks = [];
 
@@ -213,15 +214,15 @@ class CacheManager {
 
     // Warm meta data based on game mode preference
     if (favoriteGameMode) {
-      warmupTasks.push(
-        store.dispatch(steamVaultApi.endpoints.getMetaData.initiate({
-          gameMode: favoriteGameMode
-        }))
-      );
+      // Endpoint doesn't exist - commented out
+      // warmupTasks.push(
+      //   store.dispatch(steamVaultApi.endpoints.getMetaData.initiate({
+      //     gameMode: favoriteGameMode
+      //   }))
+      // );
     }
 
     await Promise.allSettled(warmupTasks);
-    console.log('[CACHE MANAGER] Smart cache warming completed');
   }
 
   /**
@@ -263,7 +264,6 @@ class CacheManager {
    * Clear all caches
    */
   async clearAllCaches() {
-    console.log('[CACHE MANAGER] Clearing all caches...');
     
     // Clear API cache
     apiCache.clear();
@@ -291,7 +291,6 @@ class CacheManager {
       backgroundRefreshCount: 0
     };
     
-    console.log('[CACHE MANAGER] All caches cleared');
     this.emit('caches-cleared');
   }
 
@@ -321,7 +320,6 @@ class CacheManager {
         imageCache.import(data.imageCache);
       }
       
-      console.log('[CACHE MANAGER] Cache data imported successfully');
       this.emit('cache-imported');
     } catch (error) {
       console.error('[CACHE MANAGER] Failed to import cache data:', error);

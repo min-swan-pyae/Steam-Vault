@@ -15,7 +15,11 @@ import ErrorPage from './pages/ErrorPage'
 import Cs2Dashboard from './pages/Cs2Dashboard'
 import MarketPlace from './pages/MarketPlace'
 import ForumPage from './pages/ForumPage'
+import PostDetails from './pages/PostDetails'
 import UserSettings from './pages/UserSettings'
+import AdminDashboard from './pages/AdminDashboard'
+// Removed WeeklySummary & MarketTrends pages per scope reduction
+import NotificationsAll from './pages/NotificationsAll'
 import PerformanceSummary from './components/stats/PerformanceSummary'
 import DetailedHeroStats from './pages/DetailedHeroStats'
 import EnhancedMetaAnalysis from './components/stats/EnhancedMetaAnalysis'
@@ -47,7 +51,10 @@ function App() {
                 </Route>
                 <Route path="marketplace" element={<MarketPlace/>} />
                 <Route path="forum" element={<ForumPage/>} />
+                <Route path="forum/posts/:postId" element={<PostDetails/>} />
                 <Route path="settings" element={<UserSettings/>} />
+                <Route path="admin" element={<AdminDashboard/>} />
+                <Route path="notifications" element={<NotificationsAll/>} />
               </Route>
               <Route path="/error" element={<ErrorPage />} />
             </Routes>

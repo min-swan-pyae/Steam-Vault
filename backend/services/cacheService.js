@@ -45,7 +45,7 @@ class CacheService {
       
       // Images and static assets
       imageData: new NodeCache({ 
-        stdTTL: 86400 * 7, // 7 days
+        stdTTL: 86400 * 30, // 30 days
         checkperiod: 3600,
         useClones: false
       }),
@@ -96,15 +96,12 @@ class CacheService {
       
       cache.on('set', (key, value) => {
         this.stats.sets++;
-        console.log(`[CACHE SET] ${cacheType}: ${key}`);
       });
 
       cache.on('del', (key, value) => {
-        console.log(`[CACHE DEL] ${cacheType}: ${key}`);
       });
 
       cache.on('expired', (key, value) => {
-        console.log(`[CACHE EXPIRED] ${cacheType}: ${key}`);
       });
     });
   }
@@ -122,10 +119,8 @@ class CacheService {
     const value = cache.get(key);
     if (value !== undefined) {
       this.stats.hits++;
-      console.log(`[CACHE HIT] ${cacheType}: ${key}`);
     } else {
       this.stats.misses++;
-      console.log(`[CACHE MISS] ${cacheType}: ${key}`);
     }
     
     return value;
@@ -217,7 +212,6 @@ class CacheService {
     }
 
     cache.flushAll();
-    console.log(`[CACHE CLEARED] ${cacheType}`);
     return true;
   }
 
@@ -230,7 +224,6 @@ class CacheService {
     });
     
     this.stats = { hits: 0, misses: 0, sets: 0 };
-    console.log('[CACHE] All caches cleared');
   }
 
   /**
@@ -254,7 +247,6 @@ class CacheService {
       }
     });
 
-    console.log(`[CACHE INVALIDATED] ${cacheType}: ${deletedKeys.length} keys matching pattern '${pattern}'`);
     return deletedKeys;
   }
 
@@ -290,7 +282,6 @@ class CacheService {
     // Check if request is already pending
     const requestKey = `${cacheType}:${key}`;
     if (this.pendingRequests.has(requestKey)) {
-      console.log(`[CACHE DEDUP] Waiting for pending request: ${requestKey}`);
       return this.pendingRequests.get(requestKey);
     }
 
@@ -328,15 +319,12 @@ class CacheService {
    */
   async warmHeroData() {
     try {
-      console.log('[CACHE WARMING] Starting hero data warming');
       
       // Warm hero list
       if (!this.has(CACHE_TYPES.HERO_DATA, 'all_heroes')) {
         // This would typically call your hero loading function
-        console.log('[CACHE WARMING] Hero data not in cache, would load from API');
       }
       
-      console.log('[CACHE WARMING] Hero data warming completed');
     } catch (error) {
       console.error('[CACHE WARMING] Error warming hero data:', error);
     }
@@ -357,9 +345,7 @@ class CacheService {
    */
   async preload(cacheType, dataLoader) {
     try {
-      console.log(`[CACHE PRELOAD] Starting preload for ${cacheType}`);
       await dataLoader(this.caches[cacheType]);
-      console.log(`[CACHE PRELOAD] Completed preload for ${cacheType}`);
     } catch (error) {
       console.error(`[CACHE PRELOAD ERROR] Failed to preload ${cacheType}:`, error);
     }

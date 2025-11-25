@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { HeroImage } from './HeroImage';
+import ItemImage from './ItemImage';
 
 export default function TeamPlayersTable({ players, teamName, teamColor }) {
   return (
@@ -58,18 +59,18 @@ export default function TeamPlayersTable({ players, teamName, teamColor }) {
                   <td className="py-3 px-4 text-center">{player.level}</td>
                   <td className="py-3 px-4 text-center">
                     <div className="flex justify-center gap-1 flex-wrap">
-                      {player.items && player.items.map(item => (
-                        <img key={item.id} src={item.image} alt={item.name} className="w-8 h-6 object-contain" title={item.name} />
+                      {player.items && player.items.map((item, idx) => (
+                        <ItemImage key={`${player.account_id}-item-${idx}-${item.id}`} itemName={item.itemName || item.name} alt={item.name} className="w-8 h-6 object-contain" />
                       ))}
                     </div>
                     <div className="flex justify-center gap-1 mt-1 flex-wrap">
-                      {player.backpack && player.backpack.map(item => (
-                        <img key={item.id} src={item.image} alt={item.name} className="w-6 h-4 object-contain opacity-75" title={`Backpack: ${item.name}`} />
+                      {player.backpack && player.backpack.map((item, idx) => (
+                        <ItemImage key={`${player.account_id}-backpack-${idx}-${item.id}`} itemName={item.itemName || item.name} alt={item.name} className="w-6 h-4 object-contain opacity-75" />
                       ))}
                     </div>
                     {player.neutral_item && (
                       <div className="flex justify-center gap-1 mt-1">
-                        <img src={player.neutral_item.image} alt={player.neutral_item.name} className="w-8 h-6 object-contain" title={player.neutral_item.name} />
+                        <ItemImage itemName={player.neutral_item.itemName || player.neutral_item.name} alt={player.neutral_item.name} className="w-8 h-6 object-contain" />
                       </div>
                     )}
                   </td>
@@ -139,14 +140,14 @@ export default function TeamPlayersTable({ players, teamName, teamColor }) {
               </div>
             </div>
             <div className="flex flex-wrap gap-1 justify-center mt-2">
-              {player.items && player.items.map(item => (
-                <img key={item.id} src={item.image} alt={item.name} className="w-8 h-6 object-contain" title={item.name} />
+              {player.items && player.items.map((item, idx) => (
+                <ItemImage key={`${player.account_id}-item-${idx}-${item.id}`} itemName={item.itemName || item.name} alt={item.name} className="w-8 h-6 object-contain" />
               ))}
-              {player.backpack && player.backpack.map(item => (
-                <img key={item.id} src={item.image} alt={item.name} className="w-6 h-4 object-contain opacity-75" title={`Backpack: ${item.name}`} />
+              {player.backpack && player.backpack.map((item, idx) => (
+                <ItemImage key={`${player.account_id}-backpack-${idx}-${item.id}`} itemName={item.itemName || item.name} alt={item.name} className="w-6 h-4 object-contain opacity-75" />
               ))}
               {player.neutral_item && (
-                <img src={player.neutral_item.image} alt={player.neutral_item.name} className="w-8 h-6 object-contain" title={player.neutral_item.name} />
+                <ItemImage itemName={player.neutral_item.itemName || player.neutral_item.name} alt={player.neutral_item.name} className="w-8 h-6 object-contain" />
               )}
             </div>
           </div>

@@ -1,13 +1,15 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { cacheService, CACHE_TYPES } from './cacheService.js';
+import { resilientFetch, TIMEOUTS } from '../utils/retryUtils.js';
+import { getHeroName } from '../utils/dotaUtils.js';
 
 dotenv.config();
 
 // Steam API client
 const steamApi = axios.create({
   baseURL: 'https://api.steampowered.com',
-  timeout: 10000,
+  timeout: TIMEOUTS.STEAM_API,
   headers: {
     'Accept': 'application/json'
   }
@@ -16,7 +18,7 @@ const steamApi = axios.create({
 // OpenDota API client (free tier, rate limited)
 const openDotaApi = axios.create({
   baseURL: 'https://api.opendota.com/api',
-  timeout: 10000,
+  timeout: TIMEOUTS.OPENDOTA,
   headers: {
     'Accept': 'application/json'
   }
@@ -97,44 +99,77 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
     
     // Get basic profile from Steam
     const apiKey = getSteamApiKey();
-    const profileRes = await steamApi.get('/ISteamUser/GetPlayerSummaries/v2/', {
-      params: {
-        key: apiKey,
-        steamids: steamId64,
-        format: 'json'
+    const profileRes = await resilientFetch(
+      () => steamApi.get('/ISteamUser/GetPlayerSummaries/v2/', {
+        params: {
+          key: apiKey,
+          steamids: steamId64,
+          format: 'json'
+        }
+      }),
+      { 
+        timeout: TIMEOUTS.STEAM_API,
+        maxRetries: 1,  // Reduced from 3 - fail faster, cache will handle subsequent requests
+        context: 'Steam GetPlayerSummaries'
       }
-    });
+    );
     
     const profile = profileRes.data.response.players[0] || {};
-    console.log(`[PLAYER PROFILE] Got player summary for ${profile.personaname}`);
-    console.log(`[PLAYER PROFILE] Profile visibility state: ${profile.communityvisibilitystate} (1=private, 3=public)`);
-    console.log(`[PLAYER PROFILE] Profile URL: ${profile.profileurl}`);
-    console.log(`[PLAYER PROFILE] Is own profile: ${isOwnProfile}`);
+
+    if (!profile.steamid) {
+      const notFoundError = new Error('Player profile not found');
+      notFoundError.statusCode = 404;
+      notFoundError.code = 'PLAYER_NOT_FOUND';
+      throw notFoundError;
+    }
+
+    const visibilityState = profile.communityvisibilitystate ?? 1;
+    if (!isOwnProfile && visibilityState !== 3) {
+      const privateError = new Error('This player profile is private');
+      privateError.statusCode = 403;
+      privateError.code = 'PRIVATE_PROFILE';
+      throw privateError;
+    }
+
     
-    // Try to get extended profile from OpenDota
+    // Try to get extended profile from OpenDota - Run all calls in parallel for speed
     let openDotaProfile = {};
     try {
-      console.log(`[PLAYER PROFILE] Fetching player data from OpenDota: ${accountId}`);
-      const openDotaRes = await openDotaApi.get(`/players/${accountId}`);
-      openDotaProfile = openDotaRes.data || {};
+      // Execute all OpenDota calls in parallel - much faster!
+      const [openDotaRes, wlRes, recentRes, heroesRes] = await Promise.allSettled([
+        resilientFetch(
+          () => openDotaApi.get(`/players/${accountId}`),
+          { timeout: TIMEOUTS.OPENDOTA, maxRetries: 1, context: 'OpenDota GetPlayer' }
+        ),
+        resilientFetch(
+          () => openDotaApi.get(`/players/${accountId}/wl`),
+          { timeout: TIMEOUTS.OPENDOTA, maxRetries: 1, context: 'OpenDota GetWinLoss' }
+        ),
+        resilientFetch(
+          () => openDotaApi.get(`/players/${accountId}/recentMatches`),
+          { timeout: TIMEOUTS.OPENDOTA, maxRetries: 1, context: 'OpenDota RecentMatches' }
+        ),
+        resilientFetch(
+          () => openDotaApi.get(`/players/${accountId}/heroes`),
+          { timeout: TIMEOUTS.OPENDOTA, maxRetries: 1, context: 'OpenDota GetHeroes' }
+        )
+      ]);
       
-      // Get win/loss count
-      console.log(`[PLAYER PROFILE] Fetching win/loss data`);
-      const wlRes = await openDotaApi.get(`/players/${accountId}/wl`);
-      openDotaProfile.win_lose = wlRes.data || { win: 0, lose: 0 };
-      
-      // Get recent matches
-      console.log(`[PLAYER PROFILE] Fetching recent matches`);
-      const recentRes = await openDotaApi.get(`/players/${accountId}/recentMatches`);
-      openDotaProfile.recent_matches = recentRes.data || [];
-      
-      // Get heroes played
-      console.log(`[PLAYER PROFILE] Fetching hero stats`);
-      const heroesRes = await openDotaApi.get(`/players/${accountId}/heroes`);
-      openDotaProfile.heroes = heroesRes.data || [];
+      // Extract data from successful promises, use defaults for failures
+      openDotaProfile = openDotaRes.status === 'fulfilled' ? openDotaRes.value.data || {} : {};
+      openDotaProfile.win_lose = wlRes.status === 'fulfilled' ? wlRes.value.data || { win: 0, lose: 0 } : { win: 0, lose: 0 };
+      openDotaProfile.recent_matches = recentRes.status === 'fulfilled' ? recentRes.value.data || [] : [];
+      openDotaProfile.heroes = heroesRes.status === 'fulfilled' ? heroesRes.value.data || [] : [];
       
     } catch (error) {
       console.log('[PLAYER PROFILE] OpenDota API error:', error.message);
+    }
+
+    if (!openDotaProfile || !openDotaProfile.profile) {
+      const noDataError = new Error('No public Dota data found for this player');
+      noDataError.statusCode = 404;
+      noDataError.code = 'NO_DOTA_DATA';
+      throw noDataError;
     }
     
     // Get player's official Dota 2 stats from Steam
@@ -142,7 +177,6 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
     let playtime = 0;
     let lastPlayedTime = null;
     try {
-      console.log(`[PLAYER PROFILE] Fetching Steam stats`);
       
       // Get owned games first - this is more reliable
       const gamesRes = await steamApi.get('/IPlayerService/GetOwnedGames/v1/', {
@@ -171,30 +205,24 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
           dotaStats = statsRes.data.playerstats;
         }
       } catch (statsError) {
-        console.log(`[PLAYER PROFILE] Stats API error (expected for Dota 2): ${statsError.message}`);
         // This is expected for Dota 2, so we just continue
       }
 
       if (gamesRes.data && gamesRes.data.response && gamesRes.data.response.games) {
-        console.log(`[PLAYER PROFILE] Games response:`, JSON.stringify(gamesRes.data.response));
         const dota2 = gamesRes.data.response.games.find(game => game.appid === 570);
         if (dota2) {
           playtime = dota2.playtime_forever;
           // Store the last played time if available
           lastPlayedTime = dota2.rtime_last_played || null;
-          console.log(`[PLAYER PROFILE] Found Dota 2 playtime: ${playtime} minutes, Last played: ${lastPlayedTime}`);
         } else {
-          console.log(`[PLAYER PROFILE] Dota 2 not found in owned games`);
         }
       } else {
-        console.log(`[PLAYER PROFILE] No games data in response - profile may be private:`, JSON.stringify(gamesRes.data));
         // Set default playtime for private profiles
         playtime = 0; // Reset to 0 as we'll handle this in the frontend
         
         // If this is the authenticated user's own profile, or if we suspect the profile might be public but the API call failed,
         // we should try to get the playtime from the Steam API using a different endpoint
         if (isOwnProfile || profile.communityvisibilitystate === 3) { // 3 means public profile
-          console.log(`[PLAYER PROFILE] Trying alternative API endpoint for ${isOwnProfile ? 'authenticated user' : 'public profile'}`);
           try {
             // Try to get the playtime using the IPlayerService/GetRecentlyPlayedGames endpoint
             // This endpoint works for authenticated users even with private profiles
@@ -210,7 +238,6 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
               const dota2 = recentlyPlayedRes.data.response.games.find(game => game.appid === 570);
               if (dota2) {
                 playtime = dota2.playtime_forever;
-                console.log(`[PLAYER PROFILE] Found Dota 2 playtime from recently played: ${playtime} minutes`);
               }
             }
           } catch (error) {
@@ -227,11 +254,9 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
     let rankEstimate = 'TBD';
     
     if (openDotaProfile.rank_tier) {
-      console.log(`[PLAYER PROFILE] Rank tier found: ${openDotaProfile.rank_tier}`);
       rankMedal = convertRankTierToMedal(openDotaProfile.rank_tier);
       rankEstimate = estimateMMRFromRank(openDotaProfile.rank_tier);
     } else if (openDotaProfile.mmr_estimate && openDotaProfile.mmr_estimate.estimate) {
-      console.log(`[PLAYER PROFILE] MMR estimate found: ${openDotaProfile.mmr_estimate.estimate}`);
       rankEstimate = openDotaProfile.mmr_estimate.estimate;
       rankMedal = estimateMedalFromMMR(rankEstimate);
     }
@@ -243,6 +268,8 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
       personaname: profile.personaname || 'Unknown Player',
       avatar: profile.avatarfull || '',
       profile_url: profile.profileurl || '',
+      communityvisibilitystate: visibilityState,
+      is_private: visibilityState !== 3,
       last_login: profile.lastlogoff || null,
       country_code: profile.loccountrycode || '',
       rank_tier: openDotaProfile.rank_tier || null,
@@ -262,16 +289,23 @@ const getPlayerProfile = async (steamId, isOwnProfile = false) => {
       playtime_forever: playtime, // Keep as minutes for frontend formatting
       last_played_time: lastPlayedTime, // Unix timestamp of when the game was last played
       
-      // Recent heroes and matches
-      recent_matches: openDotaProfile.recent_matches || [],
+      // Recent heroes and matches - Add hero names to recent matches
+      recent_matches: (openDotaProfile.recent_matches || []).map(match => ({
+        ...match,
+        hero_name: getHeroName(match.hero_id)
+      })),
       most_played_heroes: openDotaProfile.heroes || []
     };
     
     // Calculate derived stats
     const totalMatches = combinedProfile.win_count + combinedProfile.lose_count;
-    combinedProfile.win_rate = totalMatches > 0 
-      ? ((combinedProfile.win_count / totalMatches) * 100).toFixed(1) + '%' 
-      : '0%';
+    if (totalMatches === 0) {
+      const noDataError = new Error('This player has no public Dota match data');
+      noDataError.statusCode = 404;
+      noDataError.code = 'NO_DOTA_DATA';
+      throw noDataError;
+    }
+    combinedProfile.win_rate = ((combinedProfile.win_count / totalMatches) * 100).toFixed(1) + '%';
     
     // Cache the result
     cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, combinedProfile);

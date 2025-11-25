@@ -1,5 +1,13 @@
 import api from './api';
 
+const normalizeItemName = (itemName) => {
+  if (!itemName) return '';
+  return itemName.toLowerCase()
+    .replace(/^item_/, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '');
+};
+
 export const dotaService = {
   // Match history
   getMatchHistory: async (accountId, startAtMatchId = null, limit = 100) => {
@@ -9,7 +17,6 @@ export const dotaService = {
       try {
         const steamId64 = BigInt(accountId);
         const convertedId = (steamId64 - BigInt('76561197960265728')).toString();
-        console.log(`Converting Steam64 ID ${accountId} to Dota2 ID ${convertedId}`);
         dota2Id = convertedId;
       } catch (err) {
         console.error('Error converting Steam ID:', err);
@@ -23,7 +30,6 @@ export const dotaService = {
     }
     
     try {
-      console.log(`Fetching match history for account ${dota2Id}${startAtMatchId ? ' starting at match ' + startAtMatchId : ''} with limit ${limit}`);
       let attempts = 0;
       let response;
       while (attempts < 3) {
@@ -48,13 +54,6 @@ export const dotaService = {
       if (!Array.isArray(response)) {
         console.warn('Match history API returned non-array response:', response);
         return [];
-      }
-      
-      // Check if we got any matches
-      if (response.length === 0) {
-        console.log('No matches found in this batch');
-      } else {
-        console.log(`Received ${response.length} matches for account ${dota2Id}`);
       }
       
       return response;
@@ -83,8 +82,12 @@ export const dotaService = {
       return response;
     } catch (error) {
       console.error('Error in getPlayerStats:', error.response ? error.response.data : error.message);
-      // Create a fallback player object with minimal data
-      const fallback = {
+      const status = error?.response?.status;
+      if (status === 404 || status === 403) {
+        throw error;
+      }
+      // Create a fallback player object with minimal data for transient failures
+      return {
         steamId: accountId,
         personaname: 'Unknown Player',
         avatar: '',
@@ -96,22 +99,13 @@ export const dotaService = {
         most_played_role: 'Unknown',
         role_games: 0
       };
-      
-      // If there's error data from the server, use it
-      if (error.response && error.response.data) {
-        return { ...fallback, ...error.response.data };
-      }
-      
-      throw error;
     }
   },
 
   // Pro players currently in game
   getProPlayersLive: async () => {
-    console.log('Fetching pro players...');
     try {
       const response = await api.get('/api/dota2/pro-players/live');
-      console.log('Pro players response:', response);
       return response;
     } catch (error) {
       console.error('Error in getProPlayersLive:', error.response || error);
@@ -121,10 +115,8 @@ export const dotaService = {
 
   // Current meta statistics
   getMetaStats: async () => {
-    console.log('Fetching meta stats...');
     try {
       const response = await api.get('/api/dota2/meta');
-      console.log('Meta stats response:', response);
       return response;
     } catch (error) {
       console.error('Error in getMetaStats:', error.response || error);
@@ -173,7 +165,7 @@ export const dotaService = {
   getHeroPerformance: async (accountId) => {
     try {
       const response = await api.get(`/api/dota2/player/${accountId}/heroes`);
-      return response;
+      return response; // api.get() now returns data directly, not the full axios response
     } catch (error) {
       console.error('Error in getHeroPerformance:', error.response ? error.response.data : error.message);
       return [];
@@ -214,6 +206,10 @@ export const dotaService = {
       return response;
     } catch (error) {
       console.error('Error in getPlayerPerformanceSummary:', error.response ? error.response.data : error.message);
+      const status = error?.response?.status;
+      if (status === 404 || status === 403) {
+        throw error;
+      }
       return {
         player_info: { steamId: steamId, personaname: 'Unknown Player' },
         overall_stats: {},
@@ -229,7 +225,7 @@ export const dotaService = {
   getDetailedHeroStats: async (accountId, heroId) => {
     try {
       const response = await api.get(`/api/dota2/player/${accountId}/hero/${heroId}/detailed-stats`);
-      return response;
+      return response; // api.get() now returns data directly, not the full axios response
     } catch (error) {
       console.error('Error in getDetailedHeroStats:', error.response ? error.response.data : error.message);
       return {
@@ -264,29 +260,16 @@ export const dotaService = {
 
   // Item utilities
   getItemImageUrl: (itemName) => {
-    if (!itemName) return null;
-    
-    // Convert display name back to item key format for URL
-    // Remove "item_" prefix if present, convert to lowercase, replace spaces with underscores
-    const cleanName = itemName.toLowerCase()
-      .replace(/^item_/, '')
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, ''); // Remove special characters
-    
-    // Use the same format as MatchDetails
-    return `https://cdn.dota2.com/apps/dota2/images/dota_react/items/${cleanName}.png?t=1593393829403`;
+    const cleanName = normalizeItemName(itemName);
+    if (!cleanName) return null;
+    return `/api/dota2/items/image/${cleanName}`;
   },
 
   getItemImageFallbackUrl: (itemName) => {
-    if (!itemName) return null;
-    
-    const cleanName = itemName.toLowerCase()
-      .replace(/^item_/, '')
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, '');
-    
-    // Fallback without timestamp
-    return `https://cdn.dota2.com/apps/dota2/images/dota_react/items/${cleanName}.png`;
+    const cleanName = normalizeItemName(itemName);
+    if (!cleanName) return null;
+    // Use CloudFlare CDN instead of cdn.dota2.com to avoid SSL cert issues
+    return `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/${cleanName}.png`;
   },
 
 };
