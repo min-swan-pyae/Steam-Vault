@@ -86,16 +86,34 @@ const startServer = async () => {
     }
   }));
 
-  const allowedOrigins = [
+  const localOriginPatterns = [
     /^http:\/\/localhost:517[0-9]$/,
     /^http:\/\/127\.0\.0\.1:517[0-9]$/
   ];
+  const extraOrigins = (process.env.ALLOWED_ORIGINS || process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const allowedOriginSet = new Set(extraOrigins);
+  const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === 'true';
+
+  const isAllowedOrigin = (origin) => {
+    if (!origin) return true;
+    if (localOriginPatterns.some(re => re.test(origin))) return true;
+    if (allowedOriginSet.has(origin)) return true;
+    if (allowVercelPreviews) {
+      try {
+        const hostname = new URL(origin).hostname;
+        if (hostname.endsWith('.vercel.app')) return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  };
+
   app.use(cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const ok = allowedOrigins.some(re => re.test(origin));
-      return callback(null, ok);
-    },
+    origin: (origin, callback) => callback(null, isAllowedOrigin(origin)),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']

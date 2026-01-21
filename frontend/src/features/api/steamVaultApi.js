@@ -1,9 +1,10 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import { apiCache, CACHE_TYPES } from '../../services/apiCache.js'
+import { getApiBaseUrl } from '../../utils/helpers.js';
 
 // Base query with caching integration
 const baseQueryWithCache = fetchBaseQuery({
-  baseUrl: 'http://localhost:3000/api',
+  baseUrl: `${getApiBaseUrl()}/api`,
   credentials: 'include',
   prepareHeaders: (headers, { getState }) => {
     const token = localStorage.getItem('token');

@@ -2,10 +2,11 @@ import axios from 'axios';
 import { apiCache, CACHE_TYPES } from './apiCache.js';
 import { backgroundRefreshService } from './backgroundRefresh.js';
 import { requestQueue } from './requestQueue.js';
+import { getApiBaseUrl } from '../utils/helpers.js';
 
 // Create axios instance with better configuration
 const api = axios.create({
-  baseURL: 'http://localhost:3000',
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
