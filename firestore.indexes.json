@@ -1,0 +1,215 @@
+{
+  "indexes": [
+    {"collectionGroup": "forumCategories", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "isActive", "order": "ASCENDING"},
+      {"fieldPath": "order", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "weaponStats", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "kills", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "mapStats", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "totalMatches", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "matches", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "date", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "categoryId", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "categoryId", "order": "ASCENDING"},
+      {"fieldPath": "isPinned", "order": "DESCENDING"},
+      {"fieldPath": "lastActivity", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "isPinned", "order": "DESCENDING"},
+      {"fieldPath": "lastActivity", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "isPinned", "order": "DESCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumComments", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "postId", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "forumComments", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "contentLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumComments", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumComments", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "contentLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumComments", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "isRead", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "userActivity", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "marketWatchlists", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "marketWatchlists", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "alertsEnabled", "order": "ASCENDING"},
+      {"fieldPath": "targetPrice", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "matches", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "date", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorSteamId", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "forumComments", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorSteamId", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "userProfiles", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "privacy.showStatsPublicly", "order": "ASCENDING"},
+      {"fieldPath": "steamId", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "reasonLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "targetDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "reporterDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "contentSnippetLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleLower", "order": "ASCENDING"},
+      {"fieldPath": "lastActivity", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleLower", "order": "ASCENDING"},
+      {"fieldPath": "stats.likes", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "titleLower", "order": "ASCENDING"},
+      {"fieldPath": "stats.comments", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "stats.comments", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "stats.likes", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumPosts", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "authorDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "lastActivity", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "notifications", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "mapStats", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "matchesPlayed", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "status", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "reporterDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "targetDisplayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "targetSteamId", "order": "ASCENDING"},
+      {"fieldPath": "status", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "reasonLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "forumReports", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "contentSnippetLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "emailConnections", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"},
+      {"fieldPath": "email", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "userProfiles", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "steamId", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "displayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "lastSeen", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "displayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "createdAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "displayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "updatedAt", "order": "DESCENDING"}
+    ]},
+    {"collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "displayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "steamId", "order": "ASCENDING"}
+    ]},
+    {"collectionGroup": "users", "queryScope": "COLLECTION", "fields": [
+      {"fieldPath": "displayNameLower", "order": "ASCENDING"},
+      {"fieldPath": "role", "order": "ASCENDING"}
+    ]}
+  ],
+  "fieldOverrides": []
+}

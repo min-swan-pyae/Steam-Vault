@@ -1,0 +1,250 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions for authentication and authorization
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getSteamId() {
+      return request.auth.uid;
+    }
+    
+    function isOwner(steamId) {
+      return isAuthenticated() && getSteamId() == steamId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(getSteamId())) &&
+             (
+               // Preferred: roles array contains 'admin'
+               (get(/databases/$(database)/documents/users/$(getSteamId())).data.roles != null &&
+                get(/databases/$(database)/documents/users/$(getSteamId())).data.roles.hasAny(['admin'])) ||
+               // Backward compatibility with legacy permissions structure
+               (get(/databases/$(database)/documents/users/$(getSteamId())).data.permissions.isAdmin == true)
+             );
+    }
+    
+    // Moderator role removed; only admin has elevated privileges now
+    function isModerator() { return false; }
+    
+    function isVerifiedUser() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/userProfiles/$(getSteamId())) &&
+             get(/databases/$(database)/documents/userProfiles/$(getSteamId())).data.isEmailVerified == true;
+    }
+    
+    function isBanned() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(getSteamId())) &&
+             get(/databases/$(database)/documents/users/$(getSteamId())).data.permissions.isBanned == true;
+    }
+    
+    function isValidSteamId(steamId) {
+      return steamId is string && steamId.size() > 0 && steamId.matches('^[0-9]+$');
+    }
+    
+    function isRecentActivity(timeValue) {
+      return timeValue > (request.time - duration.value(1, 'h'));
+    }
+    
+    // Rate limiting helper 
+    function canPerformAction(collection, limit) {
+      // Basic rate limiting check - returns true for now
+      // In production, implement proper rate limiting via Cloud Functions
+      return true;
+    }
+
+    // 1. USERS COLLECTION
+    match /users/{steamId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && 
+                       getSteamId() == steamId && 
+                       isValidSteamId(steamId);
+      allow update: if isOwner(steamId) && 
+                       !('permissions' in request.resource.data) || // Users can't modify permissions
+                       isAdmin(); // Only admins can modify permissions
+      allow delete: if isAdmin();
+    }
+
+    // 2. USER PROFILES COLLECTION (Extended profiles - requires Gmail verification)
+    match /userProfiles/{docId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.steamId == getSteamId() ||
+                     isAdmin() ||
+                     (resource.data.privacy.showStatsPublicly == true);
+      allow create: if isAuthenticated() && 
+                       request.resource.data.steamId == getSteamId() &&
+                       request.resource.data.isEmailVerified == true;
+      allow update: if isAuthenticated() && 
+                       resource.data.steamId == getSteamId() &&
+                       request.resource.data.steamId == getSteamId();
+      allow delete: if isOwner(resource.data.steamId) || isAdmin();
+    }
+
+    // 3. NOTIFICATIONS COLLECTION
+    match /notifications/{docId} {
+      allow read, update: if isAuthenticated() && 
+                             resource.data.steamId == getSteamId();
+      allow create: if false; // Only server-side creation
+      allow delete: if isOwner(resource.data.steamId) || isAdmin();
+    }
+
+    // 4. EMAIL CONNECTIONS COLLECTION (Sensitive data)
+    match /emailConnections/{docId} {
+      allow read, update: if isAuthenticated() && 
+                             resource.data.steamId == getSteamId();
+      allow create: if isAuthenticated() && 
+                       request.resource.data.steamId == getSteamId();
+      allow delete: if isOwner(resource.data.steamId) || isAdmin();
+    }
+
+    // 5. MARKET WATCHLISTS COLLECTION
+    match /marketWatchlists/{docId} {
+      allow read, create, update, delete: if isAuthenticated() && 
+                                             (resource == null || resource.data.steamId == getSteamId()) &&
+                                             (request.resource == null || request.resource.data.steamId == getSteamId());
+    }
+
+    // 6. FORUM CATEGORIES COLLECTION
+    match /forumCategories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 7. FORUM POSTS COLLECTION
+    match /forumPosts/{postId} {
+      allow read: if isAuthenticated() && !isBanned();
+      
+      allow create: if isAuthenticated() && 
+                       !isBanned() &&
+                       isVerifiedUser() &&
+                       request.resource.data.authorSteamId == getSteamId() &&
+                       canPerformAction('forum_posts_rate', 10); // 10 posts per hour limit
+      
+  allow update: if isAuthenticated() && 
+           !isBanned() &&
+           (resource.data.authorSteamId == getSteamId() || isAdmin()) &&
+           (!resource.data.isLocked || isAdmin());
+      
+  allow delete: if isOwner(resource.data.authorSteamId) || isAdmin();
+    }
+
+    // 8. FORUM COMMENTS COLLECTION
+    match /forumComments/{commentId} {
+      allow read: if isAuthenticated() && !isBanned();
+      
+      allow create: if isAuthenticated() && 
+                       !isBanned() &&
+                       isVerifiedUser() &&
+                       request.resource.data.authorSteamId == getSteamId() &&
+                       canPerformAction('forum_comments_rate', 50); // 50 comments per hour limit
+      
+  allow update: if isAuthenticated() && 
+           !isBanned() &&
+           (resource.data.authorSteamId == getSteamId() || isAdmin());
+      
+  allow delete: if isOwner(resource.data.authorSteamId) || isAdmin();
+    }
+
+    // 9. FORUM REPORTS COLLECTION
+    match /forumReports/{reportId} {
+  allow read: if isAdmin();
+      
+      allow create: if isAuthenticated() && 
+                       !isBanned() &&
+                       isVerifiedUser() &&
+                       request.resource.data.reporterSteamId == getSteamId() &&
+                       canPerformAction('forum_reports_rate', 5); // 5 reports per hour limit
+      
+  allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 10. USER ACTIVITY COLLECTION (Auto-managed)
+    match /userActivity/{activityId} {
+      allow read: if isAuthenticated() && 
+                     resource.data.steamId == getSteamId();
+      allow create, update, delete: if false; // Server-side only
+    }
+
+    // 11. MATCHES COLLECTION (CS2 GSI data)
+    match /matches/{steamId} {
+      allow read: if isAuthenticated() && 
+                     (steamId == getSteamId() || 
+                      exists(/databases/$(database)/documents/userProfiles/$(steamId)) &&
+                      get(/databases/$(database)/documents/userProfiles/$(steamId)).data.privacy.showStatsPublicly == true);
+      
+      allow create, update: if isAuthenticated() && 
+                               steamId == getSteamId();
+      
+      allow delete: if isOwner(steamId) || isAdmin();
+    }
+
+    // 12. PLAYER STATS COLLECTION
+    match /playerStats/{steamId} {
+      allow read: if isAuthenticated() && 
+                     (steamId == getSteamId() || 
+                      exists(/databases/$(database)/documents/userProfiles/$(steamId)) &&
+                      get(/databases/$(database)/documents/userProfiles/$(steamId)).data.privacy.showStatsPublicly == true);
+      
+      allow create, update: if isAuthenticated() && 
+                               steamId == getSteamId();
+      
+      allow delete: if isOwner(steamId) || isAdmin();
+    }
+
+    // 13. WEAPON STATS COLLECTION
+    match /weaponStats/{statId} {
+      allow read: if isAuthenticated() && 
+                     (resource.data.steamId == getSteamId() || 
+                      exists(/databases/$(database)/documents/userProfiles/$(resource.data.steamId)) &&
+                      get(/databases/$(database)/documents/userProfiles/$(resource.data.steamId)).data.privacy.showStatsPublicly == true);
+      
+      allow create, update: if isAuthenticated() && 
+                               request.resource.data.steamId == getSteamId();
+      
+      allow delete: if isOwner(resource.data.steamId) || isAdmin();
+    }
+
+    // 14. MAP STATS COLLECTION
+    match /mapStats/{statId} {
+      allow read: if isAuthenticated() && 
+                     (resource.data.steamId == getSteamId() || 
+                      exists(/databases/$(database)/documents/userProfiles/$(resource.data.steamId)) &&
+                      get(/databases/$(database)/documents/userProfiles/$(resource.data.steamId)).data.privacy.showStatsPublicly == true);
+      
+      allow create, update: if isAuthenticated() && 
+                               request.resource.data.steamId == getSteamId();
+      
+      allow delete: if isOwner(resource.data.steamId) || isAdmin();
+    }
+
+    // 15. GSI SESSIONS COLLECTION
+    match /gsiSessions/{steamId} {
+      allow read: if isAuthenticated() && (
+        steamId == getSteamId() || isAdmin()
+      );
+      allow create, update, delete: if isOwner(steamId);
+    }
+
+    // RATE LIMITING DOCUMENTS (Auto-managed)
+    // These collections are managed by the backend for rate limiting. No client access.
+    match /forum_posts_rate/{docId} {
+      allow read, write: if false;
+    }
+    match /forum_comments_rate/{docId} {
+      allow read, write: if false;
+    }
+    match /forum_reports_rate/{docId} {
+      allow read, write: if false;
+    }
+
+    // Default deny rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

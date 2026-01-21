@@ -1,0 +1,14 @@
+[
+  {
+    "match_id": 123456789,
+    "hero_id": 1,
+    "duration": 2435,
+    "start_time": 1714940000
+  },
+  {
+    "match_id": 987654321,
+    "hero_id": 23,
+    "duration": 2012,
+    "start_time": 1714930000
+  }
+]
