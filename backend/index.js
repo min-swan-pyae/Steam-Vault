@@ -87,15 +87,24 @@ const startServer = async () => {
   }));
 
   const allowedOrigins = [
+    process.env.ALLOWED_ORIGINS,
     /^http:\/\/localhost:517[0-9]$/,
     /^http:\/\/127\.0\.0\.1:517[0-9]$/
   ];
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      const ok = allowedOrigins.some(re => re.test(origin));
-      return callback(null, ok);
-    },
+
+    // Check if the incoming origin matches any string or regex in our allowed list
+    const ok = allowedOrigins.some(re => {
+      if (re instanceof RegExp) {
+        return re.test(origin);
+      }
+      return re === origin; // Match exact production text strings
+    });
+    
+    return callback(null, ok);
+  },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
