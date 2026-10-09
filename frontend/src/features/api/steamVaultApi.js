@@ -3,7 +3,7 @@ import { apiCache, CACHE_TYPES } from '../../services/apiCache.js'
 
 // Base query with caching integration
 const baseQueryWithCache = fetchBaseQuery({
-  baseUrl: 'http://localhost:3000/api',
+  baseUrl: `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api`,
   credentials: 'include',
   prepareHeaders: (headers, { getState }) => {
     const token = localStorage.getItem('token');

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import EmailConnection from '../components/EmailConnection';
 import PriceSimulator from '../components/PriceSimulator';
@@ -7,6 +7,10 @@ import { useNavigate } from 'react-router-dom';
 const UserSettings = () => {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -288,8 +292,122 @@ const UserSettings = () => {
               📥 Export My Data (Excel)
             </button>
           </div>
+
+          {/* Delete Account - GDPR Right to be Forgotten */}
+          <div className="bg-gray-800 p-6 rounded-lg border border-red-900">
+            <h3 className="text-lg font-semibold text-red-400 mb-4">⚠️ Delete Account</h3>
+            <div className="bg-red-900/30 border border-red-800 rounded-lg p-4 mb-4">
+              <h4 className="text-red-300 font-medium mb-2">This action will permanently delete:</h4>
+              <ul className="text-red-200 text-sm space-y-1">
+                <li>• Your user profile and preferences</li>
+                <li>• Email connection and notification settings</li>
+                <li>• Market watchlist and price alerts</li>
+                <li>• CS2 match history, weapon stats, and map stats</li>
+                <li>• All notifications</li>
+                <li>• Forum posts will be anonymized (content preserved, author removed)</li>
+              </ul>
+            </div>
+            <p className="text-yellow-400 text-sm mb-4">
+              ⚠️ This action cannot be undone. We recommend exporting your data before deletion.
+            </p>
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors"
+            >
+              🗑️ Delete My Account
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Delete Account Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full border border-red-700">
+            <h3 className="text-xl font-bold text-red-400 mb-4">⚠️ Confirm Account Deletion</h3>
+            
+            <p className="text-gray-300 mb-4">
+              This will permanently delete your Steam Vault account and all associated data. This action cannot be undone.
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-gray-400 text-sm mb-2">
+                To confirm, please type your Steam ID: <span className="text-white font-mono">{user.steamId}</span>
+              </label>
+              <input
+                type="text"
+                value={deleteConfirmation}
+                onChange={(e) => {
+                  setDeleteConfirmation(e.target.value);
+                  setDeleteError(null);
+                }}
+                placeholder="Enter your Steam ID"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-red-500"
+              />
+            </div>
+
+            {deleteError && (
+              <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteConfirmation('');
+                  setDeleteError(null);
+                }}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (deleteConfirmation !== user.steamId) {
+                    setDeleteError('Steam ID does not match. Please enter your Steam ID correctly.');
+                    return;
+                  }
+
+                  setIsDeleting(true);
+                  setDeleteError(null);
+
+                  try {
+                    const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+                    const res = await fetch(`${API_BASE}/api/users/account`, {
+                      method: 'DELETE',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ confirmSteamId: deleteConfirmation })
+                    });
+
+                    const data = await res.json();
+
+                    if (!res.ok) {
+                      throw new Error(data.message || data.error || 'Failed to delete account');
+                    }
+
+                    // Account deleted successfully - redirect to home
+                    alert('Your account has been permanently deleted. Thank you for using Steam Vault.');
+                    window.location.href = '/';
+                  } catch (e) {
+                    console.error('Account deletion error:', e);
+                    setDeleteError(e.message || 'Failed to delete account. Please try again.');
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+                disabled={isDeleting || deleteConfirmation !== user.steamId}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? '⏳ Deleting...' : '🗑️ Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -58,9 +58,10 @@ class CacheService {
       }),
       
       // Market data (prices, searches)
+      // Increased TTL to reduce Steam API calls and prevent 429 rate limiting
       marketData: new NodeCache({
-        stdTTL: 300,       // 5 minutes
-        checkperiod: 120,
+        stdTTL: 900,       // 15 minutes (was 5 minutes)
+        checkperiod: 300,
         useClones: false
       }),
       

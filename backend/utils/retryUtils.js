@@ -118,7 +118,7 @@ export function withTimeout(promise, timeoutMs, context = 'Request') {
 export const TIMEOUTS = {
   STEAM_API: 15000,       // Steam API - 15 seconds (can be slow)
   OPENDOTA: 20000,        // OpenDota - 20 seconds (free tier is very slow)
-  STEAM_MARKET: 12000,    // Steam Market - 12 seconds
+  STEAM_MARKET: 20000,    // Steam Market - 20 seconds (increased from 12s - can be very slow with filters)
   FIRESTORE: 5000,        // Firestore - 5 seconds
   DEFAULT: 15000          // Default - 15 seconds
 };

@@ -151,13 +151,47 @@ export default function PostDetails() {
     };
   });
   const commentLookupRef = useRef(new Map());
+  const selfDeletedRef = useRef(false);
   const inflightLoadRef = useRef(false);
   const repliesSignature = JSON.stringify(showReplies);
+  
+  const dedupeComments = useCallback((list) => {
+    const map = new Map();
+    list.forEach(item => {
+      if (!item || !item.id) return;
+      map.set(item.id, item);
+    });
+    return Array.from(map.values());
+  }, []);
+  
+  // Debug: Log component mount/unmount
+  useEffect(() => {
+    console.log(`[PostDetails DEBUG] Component MOUNTED for postId=${postId}`);
+    return () => console.log(`[PostDetails DEBUG] Component UNMOUNTED for postId=${postId}`);
+  }, [postId]);
+  
   useEffect(() => {
     const map = new Map();
     comments.forEach(c => map.set(c.id, c));
     commentLookupRef.current = map;
   }, [comments]);
+
+  useEffect(() => {
+    selfDeletedRef.current = false;
+  }, [postId]);
+
+  useEffect(() => {
+    setPost(prev => {
+      if (!prev) return prev;
+      const prevCount = prev.stats?.comments ?? 0;
+      const actualCount = comments.length;
+      if (prevCount === actualCount) return prev;
+      return {
+        ...prev,
+        stats: { ...prev.stats, comments: actualCount }
+      };
+    });
+  }, [comments.length]);
 
   const commentTree = useMemo(() => {
     if (!comments.length) return [];
@@ -224,15 +258,19 @@ export default function PostDetails() {
         setError('');
       }
       const p = await forumApi.getPost(postId, { forceRefresh });
+      console.log(`[PostDetails DEBUG] getPost response: comments=${p?.stats?.comments}, likes=${p?.stats?.likes}, forceRefresh=${forceRefresh}`);
       setPost(p?.id ? p : (p?.post || p));
       try {
         const c = await forumApi.getComments(postId, { limit: 200, sortOrder: 'asc', forceRefresh });
-        const normalized = (c?.comments || c || []).map(cm => ({
-          ...cm,
-          __liked: !!cm.__liked,
-          __reported: !!cm.__reported
-        }));
-        setComments(normalized);
+        const normalized = (c?.comments || c || [])
+          // Filter out deleted comments (those with deletedBy field)
+          .filter(cm => cm && cm.id && !cm.deletedBy)
+          .map(cm => ({
+            ...cm,
+            __liked: !!cm.__liked,
+            __reported: !!cm.__reported
+          }));
+        setComments(dedupeComments(normalized));
       } catch (commentsErr) {
         console.warn('[UI] Failed to load comments (showing post anyway):', commentsErr?.message || commentsErr);
         setComments([]);
@@ -249,21 +287,14 @@ export default function PostDetails() {
     }
   }, [postId]);
 
-  useEffect(() => { load(); }, [load]);
-
-  // Reload when user returns to tab (in case they were away during SSE events)
-  useEffect(() => {
-    if (typeof document === 'undefined') return undefined;
-    const tick = () => {
-      if (!document.hidden) {
-        load({ silent: true });
-      }
-    };
-    document.addEventListener('visibilitychange', tick);
-    return () => {
-      document.removeEventListener('visibilitychange', tick);
-    };
+  // Initial load with forceRefresh to ensure fresh data
+  useEffect(() => { 
+    console.log('[PostDetails DEBUG] Initial load effect triggered, calling load with forceRefresh=true');
+    load({ forceRefresh: true }); 
   }, [load]);
+
+  // Note: We no longer reload on visibility change because SSE keeps state in sync.
+  // If SSE connection drops, the hook will auto-reconnect and we'll get updates.
 
   useEffect(() => {
     const commentId = searchParams.get('commentId');
@@ -296,11 +327,28 @@ export default function PostDetails() {
     if (!commentText.trim() || commentSubmitting) return;
     try {
       setCommentSubmitting(true);
-      const created = await forumApi.createComment({ postId, content: commentText });
-      setCommentText('');
+      const textToSubmit = commentText;
+      setCommentText(''); // Clear immediately for better UX
+      
+      const created = await forumApi.createComment({ postId, content: textToSubmit });
       toast.success('Comment added');
-      await load({ silent: true, forceRefresh: true });
+      
+      // Add the new comment to local state (SSE will also send it, but we add immediately)
       if (created?.id) {
+        console.log(`[PostDetails DEBUG] addComment success: id=${created.id}, updating local state`);
+        setComments(prev => {
+          const next = dedupeComments([...prev, { ...created, __liked: false, __reported: false }]);
+          console.log(`[PostDetails DEBUG] addComment - new array size=${next.length}`);
+          return next;
+        });
+        setPost(prev => {
+          const newCount = (prev?.stats?.comments || 0) + 1;
+          console.log(`[PostDetails DEBUG] addComment - updating post.stats.comments: ${prev?.stats?.comments} -> ${newCount}`);
+          return prev ? {
+            ...prev,
+            stats: { ...prev.stats, comments: newCount }
+          } : prev;
+        });
         setHighlightTarget({ commentId: created.id, parentCommentId: created.parentCommentId || null });
       }
     } catch (e) {
@@ -312,28 +360,44 @@ export default function PostDetails() {
   };
 
   const likePost = async () => {
+    // Optimistic update FIRST
+    const prevLiked = post?.__liked;
+    const prevLikes = post?.stats?.likes || 0;
+    setPost(prev => prev ? { 
+      ...prev, 
+      __liked: !prev.__liked, 
+      stats: { ...prev.stats, likes: Math.max(0, prevLikes + (prevLiked ? -1 : 1)) } 
+    } : prev);
+    
     try {
       await forumApi.likePost(postId);
-      setPost(prev => prev ? { ...prev, __liked: !prev.__liked, stats: { ...prev.stats, likes: (prev.stats?.likes || 0) + (prev.__liked ? -1 : 1) } } : prev);
+      // Success - optimistic update was correct
     } catch (e) {
+      // Revert on error
+      setPost(prev => prev ? { 
+        ...prev, 
+        __liked: prevLiked, 
+        stats: { ...prev.stats, likes: prevLikes } 
+      } : prev);
       toast.error('Failed to toggle like');
     }
   };
 
   const likeComment = async (comment) => {
-    // Optimistic local flip
+    // Optimistic update FIRST
+    const prevLiked = comment.__liked;
+    const prevLikes = comment.stats?.likes || 0;
+    
     setComments(prev => prev.map(c => c.id === comment.id
-      ? { ...c, __liked: !c.__liked, stats: { ...c.stats, likes: (c.stats?.likes || 0) + (c.__liked ? -1 : 1) } }
+      ? { ...c, __liked: !prevLiked, stats: { ...c.stats, likes: Math.max(0, prevLikes + (prevLiked ? -1 : 1)) } }
       : c));
     try {
-      const res = await forumApi.likeComment(comment.id);
-      if (res && typeof res.liked === 'boolean') {
-        setComments(prev => prev.map(c => c.id === comment.id ? { ...c, __liked: res.liked } : c));
-      }
+      await forumApi.likeComment(comment.id);
+      // Success - optimistic update was correct
     } catch (e) {
-      // Revert
+      // Revert on error
       setComments(prev => prev.map(c => c.id === comment.id
-        ? { ...c, __liked: !c.__liked, stats: { ...c.stats, likes: (c.stats?.likes || 0) + (c.__liked ? 1 : -1) } }
+        ? { ...c, __liked: prevLiked, stats: { ...c.stats, likes: prevLikes } }
         : c));
       toast.error(e?.response?.data?.error || 'Failed to toggle like');
     }
@@ -370,14 +434,23 @@ export default function PostDetails() {
         if (confirmPhrase !== requiredPhrase) return;
         await forumApi.deleteComment(modal.targetId);
         setComments(prev => prev.filter(c => c.id !== modal.targetId));
+        // Update comment count locally
+        setPost(prev => prev ? {
+          ...prev,
+          stats: { ...prev.stats, comments: Math.max(0, (prev.stats?.comments || 0) - 1) }
+        } : prev);
         toast.success('Comment deleted');
       } else if (modal.mode === 'delete-post') {
         if (confirmPhrase !== requiredPhrase) return;
+        selfDeletedRef.current = true;
         await forumApi.deletePost(postId);
         toast.success('Post deleted');
         navigate('/forum');
       }
     } catch (e) {
+      if (modal.mode === 'delete-post') {
+        selfDeletedRef.current = false;
+      }
       toast.error(e?.response?.data?.error || 'Action failed');
     } finally {
       setModalLoading(false);
@@ -409,14 +482,23 @@ export default function PostDetails() {
         .split(',')
         .map(t => t.trim())
         .filter(Boolean);
-      await forumApi.updatePost(postId, {
+      const updated = await forumApi.updatePost(postId, {
         title: editPostTitle.trim(),
         content: editPostContent,
         tags
       });
+      
+      // Update local state with the updated post
+      setPost(prev => prev ? {
+        ...prev,
+        title: updated?.title || editPostTitle.trim(),
+        content: updated?.content || editPostContent,
+        tags: updated?.tags || tags,
+        updatedAt: updated?.updatedAt || new Date().toISOString()
+      } : prev);
+      
       toast.success('Post updated');
       setEditPostOpen(false);
-      await load({ silent: true });
     } catch (e) {
       toast.error(e?.response?.data?.error || 'Failed to update post');
     } finally {
@@ -448,10 +530,25 @@ export default function PostDetails() {
       setReplySubmitting(true);
       const created = await forumApi.createReply(replyingTo.id, { content: replyText });
       const parentId = replyingTo.parentCommentId || replyingTo.id;
+      
+      // Add reply to local state immediately and update count
+      if (created) {
+        const newReply = {
+          ...created,
+          __liked: false,
+          __reported: false
+        };
+        setComments(prev => dedupeComments([...prev, newReply]));
+        // Update comment count
+        setPost(prev => prev ? {
+          ...prev,
+          stats: { ...prev.stats, comments: (prev.stats?.comments || 0) + 1 }
+        } : prev);
+      }
+      
       setReplyingTo(null);
       setReplyText('');
       toast.success('Reply posted');
-      await load({ silent: true, forceRefresh: true });
       expandThreadAncestors(parentId);
       if (created?.id) {
         setHighlightTarget({ commentId: created.id, parentCommentId: parentId });
@@ -467,10 +564,22 @@ export default function PostDetails() {
     if (!editingComment || editCommentSubmitting) return;
     try {
       setEditCommentSubmitting(true);
-      await forumApi.updateComment(editingComment.id, { content: editCommentText });
+      const updated = await forumApi.updateComment(editingComment.id, { content: editCommentText });
+      
+      // Update local state with the updated comment - include editHistory so (edited) shows immediately
+      const editTimestamp = updated?.updatedAt || new Date().toISOString();
+      setComments(prev => prev.map(c => c.id === editingComment.id 
+        ? { 
+            ...c, 
+            content: updated?.content || editCommentText, 
+            updatedAt: editTimestamp,
+            // Add editHistory so (edited) indicator shows immediately
+            editHistory: c.editHistory ? [...c.editHistory, { editedAt: editTimestamp }] : [{ editedAt: editTimestamp }]
+          }
+        : c));
+      
       setEditingComment(null);
       toast.success('Comment updated');
-      await load({ silent: true, forceRefresh: true });
     } catch (e) {
       toast.error(e?.response?.data?.error || 'Failed to update comment');
     } finally {
@@ -546,21 +655,126 @@ export default function PostDetails() {
   const handlePostRealtime = useCallback((event) => {
     const targetId = event.post?.id || event.postId;
     if (targetId !== postId) return;
+    
+    // Skip like events - those are handled by optimistic updates
+    if (event.type === 'post:liked') return;
+    
     if (event.type === 'post:deleted') {
-      toast.error('This post was removed.');
+      if (selfDeletedRef.current) {
+        selfDeletedRef.current = false;
+      } else {
+        toast.error('This post was removed.');
+      }
       navigate('/forum');
       return;
     }
-    load({ silent: true });
+    
+    if (event.type === 'post:updated') {
+      // Update the post in local state
+      const updatedPost = event.post;
+      if (updatedPost) {
+        setPost(prev => prev ? {
+          ...prev,
+          title: updatedPost.title || prev.title,
+          content: updatedPost.content || prev.content,
+          tags: updatedPost.tags || prev.tags,
+          updatedAt: updatedPost.updatedAt || prev.updatedAt
+        } : prev);
+      }
+      return;
+    }
+    
+    // Fallback: reload for any other post events
+    load({ silent: true, forceRefresh: true });
   }, [postId, load, navigate]);
 
   const handleCommentRealtime = useCallback((event) => {
     const targetPostId = event.comment?.postId || event.postId;
     if (targetPostId !== postId) return;
+    
+    // Skip like events - those are handled by optimistic updates and onLikeChange
+    if (event.type === 'comment:liked') return;
+    
     if (event.type === 'comment:deleted') {
-      load({ silent: true });
+      // Remove deleted comment from local state immediately
+      const deletedId = event.comment?.id || event.commentId;
+      if (deletedId) {
+        let removed = false;
+        setComments(prev => {
+          const exists = prev.some(c => c.id === deletedId);
+          if (!exists) return prev;
+          removed = true;
+          return prev.filter(c => c.id !== deletedId);
+        });
+        
+        if (removed) {
+          setPost(prev => prev ? {
+            ...prev,
+            stats: { ...prev.stats, comments: Math.max(0, (prev.stats?.comments || 0) - 1) }
+          } : prev);
+        }
+      }
       return;
     }
+    
+    if (event.type === 'comment:created') {
+      // Add new comment to local state if not already present
+      const newComment = event.comment;
+      console.log(`[PostDetails DEBUG] SSE comment:created received: id=${newComment?.id}, postId=${newComment?.postId}`);
+      if (!newComment?.id) {
+        console.warn('[PostDetails DEBUG] comment:created missing id, ignoring event');
+        return;
+      }
+      console.log(`[PostDetails DEBUG] comment:created - current comments count=${commentLookupRef.current.size}`);
+      let added = false;
+      const normalizedComment = {
+        ...newComment,
+        authorDisplayName: newComment.authorDisplayName || 'Unknown',
+        content: newComment.content || '',
+        stats: newComment.stats || { likes: 0 },
+        __liked: false,
+        __reported: false
+      };
+      setComments(prev => {
+        if (prev.some(c => c.id === newComment.id)) return prev;
+        added = true;
+        return dedupeComments([...prev, normalizedComment]);
+      });
+      
+      if (added) {
+        setPost(prev => prev ? {
+          ...prev,
+          stats: { ...prev.stats, comments: (prev.stats?.comments || 0) + 1 }
+        } : prev);
+      }
+      const parentId = newComment?.parentCommentId || null;
+      if (parentId) {
+        expandThreadAncestors(parentId);
+      }
+      setHighlightTarget({ commentId: newComment.id, parentCommentId: parentId });
+      return;
+    }
+    
+    if (event.type === 'comment:updated') {
+      // Update the comment in local state - include editHistory to show (edited)
+      const updatedComment = event.comment;
+      if (updatedComment?.id) {
+        setComments(prev => prev.map(c => 
+          c.id === updatedComment.id 
+            ? { 
+                ...c, 
+                content: updatedComment.content, 
+                updatedAt: updatedComment.updatedAt,
+                // Mark as edited - either use editHistory from event or create a simple marker
+                editHistory: updatedComment.editHistory || [{ editedAt: updatedComment.updatedAt }]
+              }
+            : c
+        ));
+      }
+      return;
+    }
+    
+    // Fallback: reload for any other comment events
     const parentId = event.comment?.parentCommentId || event.parentCommentId || null;
     if (parentId) {
       expandThreadAncestors(parentId);
@@ -569,56 +783,42 @@ export default function PostDetails() {
     if (newCommentId) {
       setHighlightTarget({ commentId: newCommentId, parentCommentId: parentId });
     }
-    load({ silent: true });
+    load({ silent: true, forceRefresh: true });
   }, [postId, load, expandThreadAncestors]);
 
-  const handleRealtimeLike = useCallback((event) => {
-    if (!event) return;
-    const { type, postId: targetPostId, commentId: targetCommentId, actorSteamId } = event;
-    
-    // Ignore SSE events from current user's own actions (optimistic update already applied)
-    if (actorSteamId === user?.steamId) return;
-    
-    // Update post like count immediately
-    if (type === 'post:liked' && targetPostId === postId) {
+  // Like events are handled via onLikeChange - update counts for OTHER users
+  const handleLikeRealtime = useCallback((event) => {
+    // Skip if this was triggered by current user (optimistic update already applied)
+    if (event.actorSteamId && user?.steamId && event.actorSteamId === user.steamId) return;
+    const targetPostId = event.postId || event.post?.id || event.comment?.postId;
+
+    if (event.type === 'post:liked') {
+      if (targetPostId !== postId || !event.postId) return;
+      const delta = event.liked ? 1 : -1;
       setPost(prev => {
-        if (!prev) return prev;
+        if (!prev || prev.id !== event.postId) return prev;
         const currentLikes = prev.stats?.likes || 0;
-        const increment = event.liked ? 1 : -1;
-        return {
-          ...prev,
-          stats: {
-            ...prev.stats,
-            likes: Math.max(0, currentLikes + increment)
-          }
-        };
+        return { ...prev, stats: { ...prev.stats, likes: Math.max(0, currentLikes + delta) } };
       });
+      return;
     }
-    
-    // Update comment like count immediately
-    if (type === 'comment:liked' && targetCommentId) {
+
+    if (event.type === 'comment:liked') {
+      const commentId = event.commentId || event.comment?.id;
+      if (!commentId) return;
+      const knownComment = commentLookupRef.current.get(commentId);
+      if (!knownComment) return;
+      if (knownComment.postId && knownComment.postId !== postId) return;
+      const delta = event.liked ? 1 : -1;
       setComments(prev => prev.map(c => {
-        if (c.id === targetCommentId) {
-          const currentLikes = c.stats?.likes || 0;
-          const increment = event.liked ? 1 : -1;
-          return {
-            ...c,
-            stats: {
-              ...c.stats,
-              likes: Math.max(0, currentLikes + increment)
-            }
-          };
-        }
-        return c;
+        if (c.id !== commentId) return c;
+        const currentLikes = c.stats?.likes || 0;
+        return { ...c, stats: { ...c.stats, likes: Math.max(0, currentLikes + delta) } };
       }));
     }
-  }, [postId, user?.steamId, setPost, setComments]);
+  }, [postId, user?.steamId]);
 
-  useForumRealtime({ 
-    onPostChange: handlePostRealtime, 
-    onCommentChange: handleCommentRealtime,
-    onLikeChange: handleRealtimeLike
-  });
+  useForumRealtime({ onPostChange: handlePostRealtime, onCommentChange: handleCommentRealtime, onLikeChange: handleLikeRealtime });
 
   if (loading && !post) return <PageLoader message="Loading post..." />;
   if (error) return <PageError message={error} onRetry={load} />;
@@ -627,6 +827,7 @@ export default function PostDetails() {
   return (
     <>
     <div className="min-h-[calc(100vh-4rem)] bg-gradient-to-br from-gray-900 to-gray-800 px-4 py-8">
+     
       {/* Back Button */}
       <button
         onClick={() => navigate('/forum')}
@@ -634,14 +835,13 @@ export default function PostDetails() {
       >
         <FaArrowLeft /> Back to Forum
       </button>
-      
-      {/* Suspension Banner */}
+       {/* Suspension Banner */}
       {isSuspended && (
-        <div className="max-w-4xl mx-auto mb-4">
-          <SuspensionBanner suspension={user?.moderation?.suspension} />
+        <div className='max-w-4xl mx-auto mb-4'>
+      <SuspensionBanner suspension={user?.moderation?.suspension} />
         </div>
       )}
-      
+
       <div className="max-w-4xl mx-auto">
         <div className="rounded-xl border border-gray-700 bg-gray-900 p-4 sm:p-6">
           <div className="flex gap-4">
@@ -708,11 +908,6 @@ export default function PostDetails() {
               <div className="mt-2 flex justify-end">
                 <button onClick={addComment} className={`px-3 py-2 text-sm rounded text-white ${commentSubmitting ? 'bg-blue-800 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`} disabled={commentSubmitting}>{commentSubmitting ? 'Posting...' : 'Post Comment'}</button>
               </div>
-            </div>
-          )}
-          {isAuthenticated && isSuspended && (
-            <div className="mt-4 p-3 rounded bg-gray-800 border border-gray-700 text-gray-500 text-sm text-center">
-              You are suspended and cannot post comments.
             </div>
           )}
         </div>

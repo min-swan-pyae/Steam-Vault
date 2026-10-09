@@ -49,12 +49,12 @@ export const marketApi = {
       });
   },
 
-  // DISABLED: Individual price API calls to prevent rate limiting
-  // price: ({ appid = DEFAULT_APPID, hashName, currency = 1 }) =>
-  // api.get('/api/market/price', { params: { appid, hashName, currency }, cacheType: 'META_DATA', forceRefresh: false }),
+  // Price API - use sparingly to avoid rate limiting
+  getPrice: ({ appid = DEFAULT_APPID, hashName, currency = 1 }) =>
+    api.get('/api/market/price', { params: { appid, hashName, currency }, cacheType: 'META_DATA', forceRefresh: false }),
 
-  // history: ({ appid = DEFAULT_APPID, hashName, currency = 1 }) =>
-  // api.get('/api/market/price/history', { params: { appid, hashName, currency }, cacheType: 'META_DATA', forceRefresh: false }),
+  getPriceHistory: ({ appid = DEFAULT_APPID, hashName, currency = 1 }) =>
+    api.get('/api/market/price/history', { params: { appid, hashName, currency }, cacheType: 'META_DATA', forceRefresh: false }),
 
   getCategories: ({ appid = DEFAULT_APPID } = {}) =>
     api.get('/api/market/categories', { params: { appid }, cacheType: 'META_DATA' }),

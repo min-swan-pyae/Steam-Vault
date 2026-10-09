@@ -659,6 +659,8 @@ export default function MarketPlace() {
 
   // Target price modal state
   const [targetPriceModal, setTargetPriceModal] = useState({ open: false, item: null, targetPrice: '' });
+  const [isAddingToWatchlist, setIsAddingToWatchlist] = useState(false);
+  const [removingItemIds, setRemovingItemIds] = useState(new Set());
 
   const addToWatchlist = (item) => {
     if (!steamId) return alert('Please login with Steam to manage your watchlist');
@@ -670,7 +672,16 @@ export default function MarketPlace() {
     }
     
     // Open modal to get target price
-    const suggestedPrice = item.currentPrice || parseFloat(item.salePriceText?.replace('$', '')) || 0;
+    // Parse price correctly - handle comma as thousands separator (e.g., "$1,912.81")
+    let suggestedPrice = item.currentPrice;
+    if (!suggestedPrice && item.salePriceText) {
+      const match = item.salePriceText.match(/\$?([0-9,]+\.?[0-9]*)/);
+      if (match) {
+        suggestedPrice = parseFloat(match[1].replace(/,/g, ''));
+      }
+    }
+    suggestedPrice = suggestedPrice || 0;
+    
     setTargetPriceModal({
       open: true,
       item,
@@ -687,6 +698,7 @@ export default function MarketPlace() {
       return;
     }
     
+    setIsAddingToWatchlist(true);
     try {
       // Extract currentPrice from salePriceText if available
       let currentPrice = item.currentPrice;
@@ -715,12 +727,16 @@ export default function MarketPlace() {
       console.error('Failed to add item to watchlist:', error);
       const msg = error?.response?.data?.message || 'Failed to add item to watchlist';
       alert(msg);
+    } finally {
+      setIsAddingToWatchlist(false);
     }
   };
 
   const removeFromWatchlist = async (item) => {
     if (!steamId) return;
     
+    const itemKey = `${item.appid || DEFAULT_APPID}_${item.hashName}`;
+    setRemovingItemIds(prev => new Set(prev).add(itemKey));
     try {
       await marketApi.removeWatchItem(steamId, `${steamId}_${item.appid || DEFAULT_APPID}_${item.hashName}`);
       const wl = await marketApi.getWatchlist(steamId);
@@ -728,6 +744,12 @@ export default function MarketPlace() {
     } catch (error) {
       console.error('Failed to remove item from watchlist:', error);
       alert('Failed to remove item from watchlist. Please try again.');
+    } finally {
+      setRemovingItemIds(prev => {
+        const next = new Set(prev);
+        next.delete(itemKey);
+        return next;
+      });
     }
   };
 
@@ -1124,15 +1146,15 @@ export default function MarketPlace() {
               </p>
             )} */}
           </div>
-          <form onSubmit={handleSearch} className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 items-stretch">
-            <select value={appid} onChange={e => handleAppChange(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+          <form onSubmit={handleSearch} className="w-full flex flex-wrap gap-3 items-stretch">
+            <select value={appid} onChange={e => handleAppChange(e.target.value)} className="w-full sm:w-auto sm:min-w-[100px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
               <option value={730}>CS2</option>
               <option value={570}>Dota 2</option>
             </select>
             
             {/* CS2 category dropdown */}
             {appid === 730 && (
-              <div className="w-full">
+              <div className="w-full sm:w-auto sm:min-w-[140px] sm:max-w-[200px]">
                 <SubCategorySelect appid={appid} value={subCategory} onChange={handleCategoryChange} />
               </div>
             )}
@@ -1140,19 +1162,19 @@ export default function MarketPlace() {
             {/* Dota2 combination filters */}
             {appid === 570 && (
               <>
-                <select value={dotaHero} onChange={e => setDotaHero(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                <select value={dotaHero} onChange={e => setDotaHero(e.target.value)} className="w-full sm:w-auto sm:min-w-[100px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                   <option value="">Hero</option>
                   {DOTA_CATEGORIES.heroes.subcategories.map(hero => (
                     <option key={hero.value} value={hero.value}>{hero.label}</option>
                   ))}
                 </select>
-                <select value={dotaType} onChange={e => setDotaType(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                <select value={dotaType} onChange={e => setDotaType(e.target.value)} className="w-full sm:w-auto sm:min-w-[100px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                   <option value="">Type</option>
                   {DOTA_CATEGORIES.types.subcategories.map(type => (
                     <option key={type.value} value={type.value}>{type.label}</option>
                   ))}
                 </select>
-                <select value={dotaRarity} onChange={e => setDotaRarity(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                <select value={dotaRarity} onChange={e => setDotaRarity(e.target.value)} className="w-full sm:w-auto sm:min-w-[100px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                   <option value="">Rarity</option>
                   {DOTA_CATEGORIES.rarities.subcategories.map(rarity => (
                     <option key={rarity.value} value={rarity.value}>{rarity.label}</option>
@@ -1166,7 +1188,7 @@ export default function MarketPlace() {
               <>
                 {/* Only show exterior filter for items that support it */}
                 {supportsExterior && (
-                  <select value={exterior} onChange={e => handleFilterChange('exterior', e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+                  <select value={exterior} onChange={e => handleFilterChange('exterior', e.target.value)} className="w-full sm:w-auto sm:min-w-[100px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
                     <option value="">Exterior</option>
                     <option value="factorynew">Factory New</option>
                     <option value="minimalwear">Minimal Wear</option>
@@ -1223,17 +1245,17 @@ export default function MarketPlace() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search items (e.g., AK-47 | Redline)"
-              className="w-full md:w-96 xl:col-span-2 lg:col-span-2 sm:col-span-2 col-span-1 min-w-0 max-w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="flex-1 min-w-[200px] max-w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
-            <input value={minPrice} onChange={e => handleFilterChange('minPrice', e.target.value)} placeholder="Min $" className="w-full sm:w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
-            <input value={maxPrice} onChange={e => handleFilterChange('maxPrice', e.target.value)} placeholder="Max $" className="w-full sm:w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
-            <select value={sortBy} onChange={e => handleFilterChange('sortBy', e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
+            <input value={minPrice} onChange={e => handleFilterChange('minPrice', e.target.value)} placeholder="Min $" className="w-20 sm:w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
+            <input value={maxPrice} onChange={e => handleFilterChange('maxPrice', e.target.value)} placeholder="Max $" className="w-20 sm:w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2" />
+            <select value={sortBy} onChange={e => handleFilterChange('sortBy', e.target.value)} className="w-full sm:w-auto sm:min-w-[120px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
               <option value="popularity">Popularity</option>
               <option value="priceAsc">Price: Low to High</option>
               <option value="priceDesc">Price: High to Low</option>
               <option value="name">Name</option>
             </select>
-            <button type="submit" disabled={isSearching || loading || isAutoSearching} className="w-full sm:w-auto px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+            <button type="submit" disabled={isSearching || loading || isAutoSearching} className="w-full sm:w-auto px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
               {isSearching || loading || isAutoSearching ? 'Searching...' : 'Search'}
             </button>
           </form>
@@ -1355,6 +1377,7 @@ export default function MarketPlace() {
                     onAdd={addToWatchlist}
                     onRemove={removeFromWatchlist}
                     eager={true}
+                    isRemoving={removingItemIds.has(`${item.appid || 730}_${item.hashName}`)}
                   />
                 ));
               }
@@ -1367,6 +1390,7 @@ export default function MarketPlace() {
                   onAdd={addToWatchlist}
                   onRemove={removeFromWatchlist}
                   eager={true}
+                  isRemoving={removingItemIds.has(`${item.appid || 730}_${item.hashName}`)}
                 />
               ));
             })()}
@@ -1458,6 +1482,8 @@ export default function MarketPlace() {
                     onAdd={addToWatchlist}
                     onRemove={removeFromWatchlist}
                     eager={idx < 15}
+                    showWatchlistView={false}
+                    isRemoving={removingItemIds.has(`${item.appid || 730}_${item.hashName}`)}
                   />
                 ))}
                 {!loading && items.length === 0 && !error && (
@@ -1593,15 +1619,24 @@ export default function MarketPlace() {
             <div className="flex gap-3">
               <button
                 onClick={() => setTargetPriceModal({ open: false, item: null, targetPrice: '' })}
-                className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+                disabled={isAddingToWatchlist}
+                className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmAddToWatchlist}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-medium transition-all shadow-lg shadow-blue-500/25"
+                disabled={isAddingToWatchlist}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg font-medium transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Add to Watchlist
+                {isAddingToWatchlist ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span>Adding...</span>
+                  </>
+                ) : (
+                  'Add to Watchlist'
+                )}
               </button>
             </div>
           </div>
@@ -1611,11 +1646,58 @@ export default function MarketPlace() {
   );
 }
 
-function ItemCard({ item, inWatchlist, onAdd, onRemove, eager = false }) {
+function ItemCard({ item, inWatchlist, onAdd, onRemove, eager = false, showWatchlistView = true, isRemoving = false }) {
   const [refEl, setRefEl] = useState(null);
 
+  // Use price history from Firebase if available (stored when item was added/updated)
+  // Convert Firebase format {price, timestamp} to Sparkline format [timestamp, price]
+  const priceHistoryData = useMemo(() => {
+    if (!Array.isArray(item.priceHistory) || item.priceHistory.length < 2) {
+      return null;
+    }
+
+    const normalizeTimestamp = (raw) => {
+      if (!raw) return null;
+      if (typeof raw === 'number') {
+        // Assume seconds if value looks small
+        return raw > 1e12 ? raw : raw * 1000;
+      }
+      if (raw instanceof Date) return raw.getTime();
+      if (typeof raw.toDate === 'function') return raw.toDate().getTime();
+      if (typeof raw.seconds === 'number') {
+        return raw.seconds * 1000 + Math.floor((raw.nanoseconds || 0) / 1e6);
+      }
+      if (typeof raw._seconds === 'number') {
+        return raw._seconds * 1000 + Math.floor((raw._nanoseconds || 0) / 1e6);
+      }
+      const parsed = Date.parse(raw);
+      return Number.isNaN(parsed) ? null : parsed;
+    };
+
+    const normalizePrice = (raw) => {
+      const num = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
+      return Number.isNaN(num) ? null : num;
+    };
+
+    const formatted = item.priceHistory
+      .map(entry => {
+        const ts = normalizeTimestamp(entry.timestamp);
+        const price = normalizePrice(entry.price);
+        if (!ts || price === null) return null;
+        return [ts, price];
+      })
+      .filter(Boolean)
+      .sort((a, b) => a[0] - b[0]);
+
+    return formatted.length >= 2 ? formatted.slice(-30) : null;
+  }, [item.priceHistory]);
+
+  // Determine if we should show watchlist-specific view
+  // In search results, even if item is in watchlist, show the current price from search
+  const showAsWatchlist = inWatchlist && showWatchlistView;
+
   return (
-  <div ref={setRefEl} className="bg-gray-800/60 border border-gray-700 rounded-xl overflow-hidden hover:border-blue-600/60 transition-colors">
+  <div ref={setRefEl} className="bg-gray-800/60 border border-gray-700 rounded-xl overflow-hidden hover:border-blue-600/60 transition-colors flex flex-col h-full">
       <div className="aspect-square w-full bg-gray-900 flex items-center justify-center overflow-hidden">
         {item.iconUrl ? (
           <img src={item.iconUrl} alt={item.name} className="w-2/3 object-contain" />
@@ -1623,22 +1705,69 @@ function ItemCard({ item, inWatchlist, onAdd, onRemove, eager = false }) {
           <span className="text-gray-600">No Image</span>
         )}
       </div>
-      <div className="p-4 space-y-2">
-  <div className="text-sm text-gray-400">{item.appName || (Number(item.appid) === 570 ? 'Dota 2' : 'CS2')}</div>
+      <div className="p-4 space-y-2 flex flex-col flex-1">
+        <div className="text-sm text-gray-400">{item.appName || (Number(item.appid) === 570 ? 'Dota 2' : 'CS2')}</div>
         <div className="font-semibold line-clamp-2 min-h-[3rem]">{item.name}</div>
-        <div className="text-sm text-gray-300">
-          {/* Use consistent price priority: salePriceText (median/average) > sellPriceText (lowest) > currentPrice */}
-          {(item.salePriceText || item.sellPriceText || (item.currentPrice ? `$${item.currentPrice.toFixed(2)}` : null)) ? (
-            <span className="text-green-400 font-medium">
-              {item.salePriceText || item.sellPriceText || `$${item.currentPrice.toFixed(2)}`}
-            </span>
+        
+        {/* Price display */}
+        <div className="text-sm text-gray-300 flex-1">
+          {showAsWatchlist ? (
+            <div className="space-y-3 h-full flex flex-col">
+              {/* Target price - main focus for watchlist */}
+              {item.targetPrice ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-400 text-xs">Target Price:</span>
+                  <span className="text-yellow-400 font-semibold text-base">${item.targetPrice.toFixed(2)}</span>
+                </div>
+              ) : (
+                <div className="text-gray-500 text-xs italic">No target price set</div>
+              )}
+              {/* Sparkline - price trend from stored history */}
+              <div className="mt-1 bg-gray-900/40 border border-gray-800 rounded-lg p-2">
+                <div className="text-gray-400 text-[11px] uppercase tracking-wide mb-2 flex items-center justify-between">
+                  <span>Price Trend</span>
+                  {priceHistoryData && (
+                    <span className="text-gray-500 normal-case">{priceHistoryData.length} pts</span>
+                  )}
+                </div>
+                {priceHistoryData ? (
+                  <Sparkline data={priceHistoryData} width={180} height={38} className="w-full" />
+                ) : (
+                  <div className="text-gray-600 text-xs text-center py-1">No price history</div>
+                )}
+              </div>
+            </div>
           ) : (
-            <span className="text-gray-500">—</span>
+            /* Non-watchlist item OR search result - show current price */
+            (item.salePriceText || item.sellPriceText || (item.currentPrice ? `$${item.currentPrice.toFixed(2)}` : null)) ? (
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-xs">Current:</span>
+                <span className="text-green-400 font-medium">
+                  {item.salePriceText || item.sellPriceText || `$${item.currentPrice.toFixed(2)}`}
+                </span>
+              </div>
+            ) : (
+              <span className="text-gray-500">—</span>
+            )
           )}
         </div>
-        <div className="pt-2">
+        
+        <div className="pt-2 mt-auto">
           {inWatchlist ? (
-            <button onClick={() => onRemove(item)} className="w-full px-3 py-2 text-sm rounded-lg bg-gray-700 hover:bg-gray-600">Remove</button>
+            <button 
+              onClick={() => onRemove(item)} 
+              disabled={isRemoving}
+              className="w-full px-3 py-2 text-sm rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isRemoving ? (
+                <>
+                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                  <span>Removing...</span>
+                </>
+              ) : (
+                'Remove'
+              )}
+            </button>
           ) : (
             <button onClick={() => onAdd(item)} className="w-full px-3 py-2 text-sm rounded-lg bg-blue-600 hover:bg-blue-500">Add to Watchlist</button>
           )}
@@ -1814,9 +1943,9 @@ function SubCategorySelect({ appid, value, onChange }) {
       <button
         type="button"
         onClick={() => setIsModalOpen(true)}
-        className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 hover:border-gray-600 transition-colors flex items-center gap-2 min-w-[150px]"
+        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 hover:border-gray-600 transition-colors flex items-center gap-2"
       >
-        <span className="truncate">{getCurrentLabel()}</span>
+        <span className="truncate flex-1 text-left">{getCurrentLabel()}</span>
         <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>

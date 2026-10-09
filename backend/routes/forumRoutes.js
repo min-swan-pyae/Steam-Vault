@@ -234,9 +234,11 @@ router.get('/my-posts', requireAuth, async (req, res) => {
 router.get('/posts/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
+    console.log(`[FORUM DEBUG] GET /posts/${postId} - Fetching post from Firestore`);
     const doc = await firebaseService.forumPosts.doc(postId).get();
     if (!doc.exists) return res.status(404).json({ error: 'Post not found' });
     const data = { id: doc.id, ...doc.data() };
+    console.log(`[FORUM DEBUG] GET /posts/${postId} - stats.comments=${data.stats?.comments}, stats.likes=${data.stats?.likes}`);
     if (req.user && req.user.steamId) {
       const steamId = req.user.steamId;
       data.__liked = Array.isArray(data.likedBy) ? data.likedBy.includes(steamId) : false;
@@ -439,7 +441,9 @@ router.post('/comments', requireAuth, async (req, res) => {
 
     const doc = await ref.get();
     const payload = { id: ref.id, ...doc.data() };
+    console.log(`[FORUM DEBUG] Comment created: id=${payload.id}, postId=${payload.postId}, by=${steamId}`);
     emitForumEvent({ type: 'comment:created', comment: payload, actorSteamId: steamId });
+    console.log(`[FORUM DEBUG] SSE event emitted: comment:created for postId=${payload.postId}`);
     res.status(201).json(payload);
   } catch (error) {
     console.error('[FORUM] Error creating comment:', error);

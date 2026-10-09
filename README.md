@@ -1,148 +1,136 @@
-# Steam Vault - Professional Gaming Statistics Platform
+# Steam Vault
 
-## 🎮 Overview
-Steam Vault is a comprehensive gaming statistics platform for Counter-Strike 2 (CS2) and Dota 2. It provides professional-grade analytics, match history, leaderboards, weapon/map stats, marketplace features, and community forums. Built with React, Node.js, Express, Firebase, and Steam Web API.
+Steam Vault is a full-stack analytics platform for Counter-Strike 2 (CS2) and Dota 2 players. It blends real-time Game State Integration (GSI), historical statistics, marketplace tracking, and community tooling into a single experience powered by a React 19 frontend and an Express/Firebase backend.
 
-## ✨ Features
-### Counter-Strike 2 (CS2)
-- Comprehensive player statistics (K/D, win rate, headshot %, weapon, map)
-- Real-time Game State Integration (GSI) for live match tracking
-- Historical match data from Steam API
-- Community leaderboards, player search, recent activity
-- Price alerts and notifications for marketplace items
+## Highlights
+- CS2 dashboards with live GSI feeds, weapon insights, and map analytics
+- Dota 2 hero trends, match history
+- Steam marketplace search, watchlists, and price alert notifications
+- Community forums with moderation workflows, bulk actions, and audit history
+- Multi-channel notification system (in-app + Gmail) with SSE updates
 
-### Dota 2
-- Match history and hero performance analytics
-- Meta insights and recommendations
-- Player behavior tracking
-- Community features and forums
+## Tech Stack
+**Frontend**: React 19, Vite, Tailwind CSS, Redux Toolkit, TanStack Query, Recharts, Framer Motion
 
-### Marketplace
-- Item search, trending, price history
-- Watchlist and price alert system
-- Bulk search and item details
+**Backend**: Node.js, Express 5, Firebase Admin SDK, Passport (Steam OAuth), Nodemailer/Gmail API, NodeCache
 
-### Community & Notifications
-- Forums, categories, posts, comments, moderation
-- In-app and email notifications (price drops, forum replies, system alerts)
-- Gmail integration for advanced notification delivery
-- Data export (planned)
+**Data & Integrations**: Firebase Firestore, Steam Web API, OpenDota API, Gmail, Server-Sent Events, multi-layer caching and retry utilities
 
-## 🛠️ Technology Stack
-- **Frontend**: React 18, Vite, Tailwind CSS, Redux Toolkit, React Router, Recharts
-- **Backend**: Node.js, Express.js, Firebase Admin SDK, Passport.js, Steam Web API
-- **Database**: Firebase Firestore (NoSQL), multi-layer caching
 
-## 📚 Database Schema (Summary)
-Steam Vault uses a robust Firestore schema. Key collections:
-- **users**: Steam-auth user profiles
-- **userProfiles**: Extended profiles (Gmail, notification prefs, privacy)
-- **sessions**: Session management
-- **notifications**: User notifications (price, forum, system)
-- **emailConnections**: Gmail account connections
-- **marketWatchlists**: Marketplace watchlist items
-- **priceAlerts**: Price drop notifications
-- **forumCategories, forumPosts, forumComments, forumReports, userActivity**: Forums and moderation
-- **matches, playerStats, weaponStats, mapStats, gsiConfigs, leaderboards, marketCache, systemSettings**: Game and market data
+## Prerequisites
+- Node.js 18+ and npm
+- Steam Web API key
+- Firebase project with Firestore enabled
+- Gmail account (optional, for outbound notifications)
 
-See [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md) for full schema and indexes.
+## Installation
 
-## 📋 Prerequisites
-- Node.js (v18+)
-- npm or yarn
-- Steam Web API Key ([Get one](https://steamcommunity.com/dev/apikey))
-- Firebase Project ([Create one](https://console.firebase.google.com/))
+1. **Install dependencies**
+   ```bash
+   cd backend && npm install
+   cd ../frontend && npm install
+   ```
+2. **Configure Firebase**
+   - Create a Firebase project + Firestore DB
+   - Generate a service account key for the backend
+   - Review `firebase.json`, `firestore.rules`, and `firestore.indexes.json`
+4. **Request external credentials**
+   - Steam Web API key: https://steamcommunity.com/dev/apikey
+   - Gmail OAuth/app password (if email alerts are required)
 
-## 🚀 Installation
-1. Clone the repository
-2. Install dependencies (backend & frontend)
-3. Configure environment variables (see below)
-4. Setup Firebase and Steam API keys
+## Environment Variables
 
-## ⚙️ Environment Configuration
-### Backend `.env`
-```
-STEAM_API_KEY=your_steam_api_key_here
-FIREBASE_PROJECT_ID=your_firebase_project_id
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nyour_private_key_here\n-----END PRIVATE KEY-----\n"
-FIREBASE_CLIENT_EMAIL=your_client_email@your_project.iam.gserviceaccount.com
+Create `.env` files in `backend/` and `frontend/`. 
+
+### backend/.env
+```env
 PORT=3000
-SESSION_SECRET=your_session_secret_here
+NODE_ENV=development
+SESSION_SECRET=replace_me
+
+STEAM_API_KEY=your_steam_api_key
+
+FIREBASE_PROJECT_ID=your_project_id
+FIREBASE_CLIENT_EMAIL=service-account@your_project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
 GMAIL_USER=yourgmail@gmail.com
-GMAIL_CLIENT_ID=gmail_client_id.apps.googleusercontent.com
-GMAIL_CLIENT_SECRET=
-GMAIL_APP_PASSWORD=
+GMAIL_CLIENT_ID=...
+GMAIL_CLIENT_SECRET=...
+GMAIL_APP_PASSWORD=...
+
+# Optional public URLs for production deployments
+# FRONTEND_URL=https://your-frontend.app
+# BACKEND_PUBLIC_URL=https://your-backend.app
 ```
-### Frontend `.env`
-```
-VITE_FIREBASE_API_KEY=your_firebase_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_firebase_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-VITE_FIREBASE_APP_ID=your_app_id
-VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
+
+### frontend/.env
+```env
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_MEASUREMENT_ID=...
+
 VITE_API_BASE_URL=http://localhost:3000
-
-# Public URLs (for production emails/links)
-# FRONTEND_URL=https://app.yourdomain.com
-# BACKEND_PUBLIC_URL=https://api.yourdomain.com
+# Override with your production API URL when deploying
 ```
 
-## 🏃‍♂️ Running the Application
-- Backend: `cd backend && npm start`
-- Frontend: `cd frontend && npm run dev`
 
-## 🧩 Usage
-- Login with Steam
-- Access CS2 and Dota 2 dashboards
-- Use marketplace features (search, watchlist, price alerts)
-- Participate in forums
-- Configure notifications and Gmail integration
+## Running the Project
 
-## 🔗 API Endpoints
-See [`backend/README.md`](backend/README.md) for full API reference.
+### Manual workflow
+Use two terminals from the repository root:
+```bash
+# Terminal 1 - API
+cd backend
+npm start
 
-Key user endpoints:
-- `GET /api/users/export` – authenticated data export
-- `POST /api/users/preferences` – save notification preferences
+# Terminal 2 - Frontend
+cd frontend
+npm run dev
+```
+Backend listens on `http://localhost:3000`, frontend on `http://localhost:5173` by default.
 
-## 🧪 Testing
-- Backend: `cd backend && npm test`
-- Frontend: `cd frontend && npm test`
+### VS Code tasks
+Instead of manual commands you can trigger the bundled tasks (Terminal → Run Task):
+- `Start Backend Dev Server`
+- `Start Frontend Dev Server`
+- `Start Both Servers`
 
-## ☁️ Deployment
-- Build frontend: `cd frontend && npm run build`
-- Start backend: `cd backend && npm start`
-- Recommended hosting: Backend (Heroku, DigitalOcean, AWS), Frontend (Vercel, Netlify, AWS S3), Database (Firebase)
+### First-time checklist
+1. Sign in with Steam (OAuth flow handled by backend)
+2. Visit the CS2 and Dota dashboards to ensure API keys are correct
+3. Create a marketplace watchlist item to validate Firestore writes
+4. (Optional) Enable Gmail + SSE notifications to test live alerts
 
-## 🛡️ Security & Privacy
-- Steam OAuth required for user features
-- Gmail integration for notifications (optional)
-- User privacy controls for stats, watchlists, match history
-- Content moderation and reporting in forums
+### Optional: CS2 Game State Integration
+Copy a `gamestate_integration_steamvault.cfg` file into your CS2 config directory pointing to `http://localhost:3000/api/cs2/gsi/<steamId>`. Sample payloads live in `backend/mock/` to assist with testing without a running game.
 
-## 📝 Contributing
-- Fork, branch, commit, PR
-- Follow ESLint and code style
-- Write tests and update documentation
+## Testing
+```bash
+# Backend tests
+cd backend
+npm test
 
-## 📖 License
-MIT License
+# Frontend tests
+cd ../frontend
+npm test
+```
 
-## 🙏 Acknowledgments
-- Steam Web API, Firebase, Valve, React, Tailwind CSS
+## Deployment (summary)
+1. Build the frontend: `cd frontend && npm run build` (outputs to `dist/`)
+2. Configure production env vars for both services
+3. Deploy the backend (Heroku, Render, Cloud Run, etc.) and serve the `dist/` assets via your preferred static host (Vercel, Netlify, Firebase Hosting, ...)
+4. Update Steam OAuth return URLs and Gmail credentials to match the deployed domains
 
-## 🆘 Support
-- GitHub issues
-- Documentation in `docs/`
-- FAQ in `docs/FAQ.md`
 
-## 🔄 Updates
-- Actively maintained: new features, bug fixes, performance, security
+## License
+Released under the MIT License. See `LICENSE` for details.
 
----
-
-**Made with ❤️ by the Steam Vault Team**
+## Contact
+Built by Min Swan Pyae. For questions, open an issue or reference the documentation above.
 
 

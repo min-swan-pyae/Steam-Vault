@@ -92,7 +92,27 @@ router.post('/connect-email', requireAuth, async (req, res) => {
 
   } catch (error) {
     console.error('Email connection error:', error);
-    res.status(500).json({ error: 'Failed to connect email' });
+    
+    // Provide more specific error messages based on the error type
+    let errorMessage = 'Failed to connect email';
+    let statusCode = 500;
+    
+    if (error.code === 'EDNS' || error.code === 'ENOTFOUND' || error.code === 'ETIMEOUT' || 
+        error.message?.includes('ETIMEOUT') || error.message?.includes('ENOTFOUND')) {
+      errorMessage = 'Unable to connect to email server. Please check your network connection and try again.';
+      statusCode = 503; // Service Unavailable
+    } else if (error.code === 'EAUTH' || error.responseCode === 535) {
+      errorMessage = 'Email authentication failed. Please contact the administrator.';
+      statusCode = 500;
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Email server connection refused. Please try again later.';
+      statusCode = 503;
+    } else if (error.code === 'ESOCKET' || error.code === 'ECONNECTION') {
+      errorMessage = 'Network error while sending email. Please try again.';
+      statusCode = 503;
+    }
+    
+    res.status(statusCode).json({ error: errorMessage });
   }
 });
 

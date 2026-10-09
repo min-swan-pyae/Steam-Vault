@@ -176,8 +176,8 @@ const CS2ProfileData = ({ steamId: propSteamId }) => {
           <>
             {/* Performance Metrics */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
-              <RankCard rank={profileData.rank} statistics={profileData.statistics} />
-              <TrendsCard trends={profileData.trends} />
+              {profileData.rank && <RankCard rank={profileData.rank} statistics={profileData.statistics} />}
+              {profileData.trends && <TrendsCard trends={profileData.trends} />}
             </div>
             
             {/* Data Quality and Sources */}
@@ -453,8 +453,9 @@ const RankCard = ({ rank, statistics }) => {
     return rankColors[rankName] || 'from-gray-600 to-gray-700 border-gray-500';
   };
 
+  // Handle null/undefined rank safely
   const comp = rank?.competitive || rank || {};
-  const rankColor = getRankColor(comp.estimatedRank || rank.estimatedRank || 'Unranked');
+  const rankColor = getRankColor(comp.estimatedRank || rank?.estimatedRank || 'Unranked');
 
   return (
     <div className={`bg-gradient-to-br ${rankColor} rounded-xl p-4 sm:p-6 shadow-lg border`}>
@@ -515,7 +516,7 @@ const RankCard = ({ rank, statistics }) => {
           </div>
         </div>
         
-        {(comp.estimatedRank || rank.estimatedRank) === 'Unranked' && (
+        {(comp.estimatedRank || rank?.estimatedRank) === 'Unranked' && (
           <div className="mt-3 sm:mt-4 bg-black bg-opacity-30 rounded-lg p-2 sm:p-3">
             <div className="text-xs text-gray-300 leading-tight">
               💡 Play more matches to get an accurate rank estimation
@@ -910,75 +911,144 @@ const DataQualityCard = ({ dataQuality, gameInfo, steamId }) => {
   );
 };
 
-const RecentMatchesCard = ({ matches }) => (
-  <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 sm:p-6 mb-6 sm:mb-8 shadow-lg border border-gray-700">
-    <h3 className="text-lg sm:text-xl font-bold text-blue-300 mb-3 sm:mb-4">🎯 Recent Matches</h3>
-    
-    {matches && matches.length > 0 ? (
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs sm:text-sm">
-          <thead>
-            <tr className="border-b border-gray-600">
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Date</th>
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Map</th>
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Result</th>
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">K/D/A</th>
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">MVP</th>
-              <th className="text-left py-2 text-gray-300 text-xs sm:text-sm">Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            {matches.map((match, index) => (
-              <tr key={index} className="border-b border-gray-700 hover:bg-gray-700">
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">
-                  {(() => {
-                    const ts = match.date || match.createdAt;
-                    const toMs = (v) => {
-                      if (!v) return 0;
-                      if (typeof v.toMillis === 'function') return v.toMillis();
-                      if (typeof v === 'object' && (v._seconds || v.seconds)) {
-                        const s = v._seconds ?? v.seconds;
-                        const ns = v._nanoseconds ?? v.nanoseconds ?? 0;
-                        return (s * 1000) + Math.floor(ns / 1e6);
-                      }
-                      const d = new Date(v);
-                      return isNaN(d.getTime()) ? 0 : d.getTime();
-                    };
-                    const ms = toMs(ts);
-                    return ms ? new Date(ms).toLocaleString() : '—';
-                  })()}
-                </td>
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">{match.mapName || match.map || 'Unknown'}</td>
-                <td className="py-2">
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    match.result === 'Win' ? 'bg-green-600 text-white' : (match.result === 'Tie' ? 'bg-yellow-600 text-white' : 'bg-red-600 text-white')
-                  }`}>
-                    {match.result || 'Unknown'}{match.resultReason === 'Surrender' ? ' (Surrender)' : ''}
-                  </span>
-                </td>
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">
-                  {(match.kills ?? 0)}/{(match.deaths ?? 0)}/{(match.assists ?? 0)}
-                </td>
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded ${
-                    (match.mvps ?? 0) > 0 ? 'bg-yellow-700 text-yellow-200' : 'bg-gray-700 text-gray-300'
-                  }`}>
-                    ⭐ {match.mvps ?? 0}
-                  </span>
-                </td>
-                <td className="py-2 text-gray-300 text-xs sm:text-sm">{(match.score ?? '0') + ' - ' + (match.opponentScore ?? '0')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    ) : (
-      <div className="text-center py-6 sm:py-8 text-gray-400 text-sm sm:text-base">
-        No recent matches found. Play CS2 with GSI enabled to see match history.
-      </div>
-    )}
-  </div>
-);
+const RecentMatchesCard = ({ matches }) => {
+  const formatDate = (ts) => {
+    const toMs = (v) => {
+      if (!v) return 0;
+      if (typeof v.toMillis === 'function') return v.toMillis();
+      if (typeof v === 'object' && (v._seconds || v.seconds)) {
+        const s = v._seconds ?? v.seconds;
+        const ns = v._nanoseconds ?? v.nanoseconds ?? 0;
+        return (s * 1000) + Math.floor(ns / 1e6);
+      }
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    const ms = toMs(ts);
+    if (!ms) return '—';
+    const date = new Date(ms);
+    return {
+      date: date.toLocaleDateString(),
+      time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+  };
+
+  const getResultStyle = (result) => {
+    if (result === 'Win') return 'bg-green-600 text-white';
+    if (result === 'Tie') return 'bg-yellow-600 text-white';
+    return 'bg-red-600 text-white';
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 sm:p-6 mb-6 sm:mb-8 shadow-lg border border-gray-700">
+      <h3 className="text-lg sm:text-xl font-bold text-blue-300 mb-3 sm:mb-4">🎯 Recent Matches</h3>
+      
+      {matches && matches.length > 0 ? (
+        <>
+          {/* Desktop Table - hidden on small screens */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-600">
+                  <th className="text-left py-2 px-2 text-gray-300">Date</th>
+                  <th className="text-left py-2 px-2 text-gray-300">Map</th>
+                  <th className="text-left py-2 px-2 text-gray-300">Result</th>
+                  <th className="text-left py-2 px-2 text-gray-300">K/D/A</th>
+                  <th className="text-left py-2 px-2 text-gray-300">MVP</th>
+                  <th className="text-left py-2 px-2 text-gray-300">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {matches.map((match, index) => {
+                  const dateInfo = formatDate(match.date || match.createdAt);
+                  return (
+                    <tr key={index} className="border-b border-gray-700 hover:bg-gray-700/50">
+                      <td className="py-3 px-2 text-gray-300 text-sm whitespace-nowrap">
+                        {typeof dateInfo === 'object' ? `${dateInfo.date}, ${dateInfo.time}` : dateInfo}
+                      </td>
+                      <td className="py-3 px-2 text-gray-300">{match.mapName || match.map || 'Unknown'}</td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getResultStyle(match.result)}`}>
+                          {match.result || 'Unknown'}{match.resultReason === 'Surrender' ? ' (Surrender)' : ''}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-gray-300 font-mono">
+                        {(match.kills ?? 0)}/{(match.deaths ?? 0)}/{(match.assists ?? 0)}
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${
+                          (match.mvps ?? 0) > 0 ? 'bg-yellow-700 text-yellow-200' : 'bg-gray-700 text-gray-400'
+                        }`}>
+                          ⭐ {match.mvps ?? 0}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-gray-300 font-medium">
+                        {(match.score ?? '0')} - {(match.opponentScore ?? '0')}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Cards - visible only on small screens */}
+          <div className="md:hidden space-y-3">
+            {matches.map((match, index) => {
+              const dateInfo = formatDate(match.date || match.createdAt);
+              return (
+                <div key={index} className="bg-gray-700/50 rounded-lg p-3 border border-gray-600">
+                  {/* Header row: Date & Result */}
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-gray-400">
+                      {typeof dateInfo === 'object' ? `${dateInfo.date}, ${dateInfo.time}` : dateInfo}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${getResultStyle(match.result)}`}>
+                      {match.result || 'Unknown'}{match.resultReason === 'Surrender' ? ' (Surr)' : ''}
+                    </span>
+                  </div>
+                  
+                  {/* Map name */}
+                  <div className="text-white font-medium mb-2">
+                    {match.mapName || match.map || 'Unknown'}
+                  </div>
+                  
+                  {/* Stats row */}
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <span className="text-gray-400 text-xs">K/D/A</span>
+                        <div className="text-gray-200 font-mono">
+                          {(match.kills ?? 0)}/{(match.deaths ?? 0)}/{(match.assists ?? 0)}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 text-xs">MVP</span>
+                        <div className={`${(match.mvps ?? 0) > 0 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                          ⭐ {match.mvps ?? 0}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-gray-400 text-xs">Score</span>
+                      <div className="text-white font-medium">
+                        {(match.score ?? '0')} - {(match.opponentScore ?? '0')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-6 sm:py-8 text-gray-400 text-sm sm:text-base">
+          No recent matches found. Play CS2 with GSI enabled to see match history.
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MapPerformanceCard = ({ maps }) => {
   const formatPercent = (wins, total) => {

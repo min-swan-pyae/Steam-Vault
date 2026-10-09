@@ -958,16 +958,35 @@ export const  getPlayerPerformanceSummary = asyncHandler(async (req, res) => {
       extendedStats = { mmr_history: null };
     }
     
+    // Throttle OpenDota calls to avoid rate limiting and timeouts when multiple users access
+    const throttleOpenDota = async () => {
+      try {
+        const lastTs = cacheService.get(CACHE_TYPES.RATE_LIMITING, 'opendota_last_ts') || 0;
+        const now = Date.now();
+        const minGap = 500; // 500ms minimum gap between OpenDota calls
+        const wait = Math.max(0, minGap - (now - lastTs));
+        if (wait > 0) {
+          await new Promise(r => setTimeout(r, wait));
+        }
+        cacheService.set(CACHE_TYPES.RATE_LIMITING, 'opendota_last_ts', Date.now(), 60);
+      } catch (e) {
+        // non-blocking
+      }
+    };
+    
     // Get recent matches with error handling
     let recentMatches = [];
+    let recentMatchesFetchFailed = false;
     try {
+      await throttleOpenDota();
       const response = await axios.get(`https://api.opendota.com/api/players/${accountId}/matches`, {
         params: { limit: 1000 },
-        timeout: 10000 // Set timeout to 10 seconds
+        timeout: 20000 // Increased timeout to 20 seconds for large data fetch
       });
       recentMatches = response.data;
     } catch (error) {
       console.error(`Failed to fetch recent matches for account ID ${accountId}:`, error.message);
+      recentMatchesFetchFailed = true; // Mark as failed to prevent caching incomplete data
     }
     
     // Calculate performance metrics
@@ -987,9 +1006,11 @@ export const  getPlayerPerformanceSummary = asyncHandler(async (req, res) => {
     
     // Get hero stats with error handling
     let heroStats = [];
+    let heroStatsFetchFailed = false;
     try {
+      await throttleOpenDota();
       const response = await axios.get(`https://api.opendota.com/api/players/${accountId}/heroes`, {
-        timeout: 10000 // Set timeout to 10 seconds
+        timeout: 20000 // Increased timeout to 20 seconds
       });
       heroStats = response.data.map(hero => ({
         hero_id: hero.hero_id,
@@ -1000,6 +1021,7 @@ export const  getPlayerPerformanceSummary = asyncHandler(async (req, res) => {
       }));
     } catch (error) {
       console.error(`Failed to fetch hero stats for account ID ${accountId}:`, error.message);
+      heroStatsFetchFailed = true;
     }
     
     // Find best and worst heroes (min 5 games played)
@@ -1038,11 +1060,21 @@ export const  getPlayerPerformanceSummary = asyncHandler(async (req, res) => {
       progression: {
         mmr_trend: extendedStats.mmr_history ? calculateMMRTrend(extendedStats.mmr_history) : 'stable',
         skill_development: assessSkillDevelopment(recentMatches)
+      },
+      // Include fetch status for frontend to know if data is incomplete
+      _dataStatus: {
+        recentMatchesFetched: !recentMatchesFetchFailed,
+        heroStatsFetched: !heroStatsFetchFailed
       }
     };
     
-    // Cache the result
-    cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, summary);
+    // Only cache if critical data was fetched successfully
+    // Don't cache incomplete data to allow retry on next request
+    if (!recentMatchesFetchFailed && !heroStatsFetchFailed) {
+      cacheService.set(CACHE_TYPES.PLAYER_DATA, cacheKey, summary);
+    } else {
+      console.warn(`Not caching performance summary for ${steamId} due to failed API calls (recentMatches: ${recentMatchesFetchFailed}, heroStats: ${heroStatsFetchFailed})`);
+    }
     
     res.json(summary);
   } catch (error) {
@@ -1100,9 +1132,9 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
   const { steamId, heroId } = req.params;
   const cacheKey = `detailed_hero_${steamId}_${heroId}`;
   
-  // Check cache first
+  // Check cache first - but only serve cache if it has valid data (not a failed fetch marker)
   const cached = cacheService.get(CACHE_TYPES.PLAYER_DATA, cacheKey);
-  if (cached) {
+  if (cached && !cached._fetchFailed) {
     return res.json(cached);
   }
   
@@ -1116,6 +1148,21 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
       throw new Error('Invalid Steam ID');
     }
     
+    // Throttle OpenDota calls to avoid rate limiting
+    const throttleOpenDota = async () => {
+      try {
+        const lastTs = cacheService.get(CACHE_TYPES.RATE_LIMITING, 'opendota_last_ts') || 0;
+        const now = Date.now();
+        const minGap = 500; // 500ms minimum gap between OpenDota calls
+        const wait = Math.max(0, minGap - (now - lastTs));
+        if (wait > 0) {
+          await new Promise(r => setTimeout(r, wait));
+        }
+        cacheService.set(CACHE_TYPES.RATE_LIMITING, 'opendota_last_ts', Date.now(), 60);
+      } catch (e) {
+        // non-blocking
+      }
+    };
     
     // Get hero data for mapping hero IDs to names
     let heroMap = heroCache.get('heroes');
@@ -1126,11 +1173,13 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
     
     const heroInfo = heroMap[heroId] || { localized_name: 'Unknown Hero' };
     
-    // Get all matches played with this hero
+    // Get all matches played with this hero - with throttling and increased timeout
+    await throttleOpenDota();
     const response = await axios.get(`https://api.opendota.com/api/players/${accountId}/matches`, {
       params: {
         hero_id: heroId // No limit, fetch all matches
-      }
+      },
+      timeout: 20000 // 20 second timeout
     });
 
     if (!response.data || !Array.isArray(response.data)) {
@@ -1211,9 +1260,13 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
     }
 
     // Fetch detailed data for these last 30 (or fewer) match summaries
-    const detailedHeroMatchesPromises = recentHeroMatchSummaries.map(async (summary) => {
+    // Use controlled concurrency to avoid overwhelming OpenDota API
+    const fetchMatchDetail = async (summary) => {
       try {
-        const matchDetailResponse = await axios.get(`https://api.opendota.com/api/matches/${summary.match_id}`);
+        await throttleOpenDota(); // Add delay between requests
+        const matchDetailResponse = await axios.get(`https://api.opendota.com/api/matches/${summary.match_id}`, {
+          timeout: 15000 // 15 second timeout per match
+        });
         const matchData = matchDetailResponse.data;
         // Find the player's specific data within the match details
         const playerData = matchData.players.find(p => p.account_id == accountId && p.hero_id == heroId);
@@ -1230,19 +1283,27 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
               lane_role: playerData.lane_role // Explicitly add lane_role
             };
         }
-        return null; // Player data not found in this match for this hero (should not happen if hero_id matches)
+        return null; // Player data not found in this match for this hero
       } catch (err) {
-        if (err.response && err.response.status === 404) {
+        if (err.response?.status === 429) {
+          console.warn(`Rate limited fetching match ${summary.match_id}. Skipping.`);
+        } else if (err.response?.status === 404) {
           console.warn(`Match ${summary.match_id} not found on OpenDota (404). Skipping.`);
         } else {
           console.error(`Failed to fetch details for match ${summary.match_id}:`, err.message);
         }
-        return null; // Return null if a single match fetch fails or is not found
+        return null;
       }
-      
-    });
+    };
 
-    let detailedHeroMatches = (await Promise.all(detailedHeroMatchesPromises)).filter(match => match !== null);
+    // Fetch matches with controlled concurrency (3 at a time instead of all 30 at once)
+    const concurrencyLimit = 3;
+    const detailedHeroMatches = [];
+    for (let i = 0; i < recentHeroMatchSummaries.length; i += concurrencyLimit) {
+      const batch = recentHeroMatchSummaries.slice(i, i + concurrencyLimit);
+      const batchResults = await Promise.all(batch.map(fetchMatchDetail));
+      detailedHeroMatches.push(...batchResults.filter(match => match !== null));
+    }
 
     // Fallback if detailed fetches for the recent 30 matches fail or yield no valid data
     if (detailedHeroMatches.length === 0) {
@@ -1449,9 +1510,21 @@ export const getDetailedHeroStats = asyncHandler(async (req, res) => {
     res.json(detailedStats);
   } catch (error) {
     console.error('Error fetching detailed hero stats:', error.message);
-    res.status(500).json({
+    
+    // Check if it's a rate limit error (429)
+    const isRateLimited = error.response?.status === 429;
+    const statusCode = isRateLimited ? 429 : 500;
+    
+    // Do NOT cache failed responses - this allows retry on next request
+    // Only log that we're not caching
+    console.warn(`Not caching detailed hero stats for ${steamId}/${heroId} due to API failure (rate limited: ${isRateLimited})`);
+    
+    res.status(statusCode).json({
       error: true,
-      message: 'Failed to fetch detailed hero statistics',
+      message: isRateLimited 
+        ? 'Rate limited by OpenDota. Please wait a moment and try again.' 
+        : 'Failed to fetch detailed hero statistics',
+      isRateLimited,
       hero_id: parseInt(heroId),
       total_matches: 0,
       wins: 0,

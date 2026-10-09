@@ -58,8 +58,10 @@ export const forumApi = {
       return res;
     } catch (e) { throw e; }
   },
-  likePost: async (postId) => api.post(`/api/forum/posts/${postId}/like`).finally(()=>{ api.clearCache && api.clearCache(CACHE_TYPES.FORUM_DATA); }),
-  likeComment: async (commentId) => api.post(`/api/forum/comments/${commentId}/like`).finally(()=>{ api.clearCache && api.clearCache(CACHE_TYPES.FORUM_DATA); }),
+  // Like operations use optimistic updates - no need to clear cache
+  // SSE will handle cache invalidation for other users/pages
+  likePost: async (postId) => api.post(`/api/forum/posts/${postId}/like`),
+  likeComment: async (commentId) => api.post(`/api/forum/comments/${commentId}/like`),
   report: async (data) => {
     const res = await api.post('/api/forum/reports', data);
     api.clearCache && api.clearCache(CACHE_TYPES.FORUM_DATA);

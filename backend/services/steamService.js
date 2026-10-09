@@ -1,4 +1,6 @@
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
 import dotenv from 'dotenv';
 import { cacheService, CACHE_TYPES } from './cacheService.js';
 import { resilientFetch, TIMEOUTS } from '../utils/retryUtils.js';
@@ -6,13 +8,29 @@ import { getHeroName } from '../utils/dotaUtils.js';
 
 dotenv.config();
 
+// HTTP/HTTPS agents with connection pooling (keep-alive)
+// This reuses TCP connections instead of creating new ones for each request
+const httpAgent = new http.Agent({ 
+  keepAlive: true, 
+  maxSockets: 10,
+  keepAliveMsecs: 30000 
+});
+const httpsAgent = new https.Agent({ 
+  keepAlive: true, 
+  maxSockets: 10,
+  keepAliveMsecs: 30000 
+});
+
 // Steam API client
 const steamApi = axios.create({
   baseURL: 'https://api.steampowered.com',
   timeout: TIMEOUTS.STEAM_API,
   headers: {
-    'Accept': 'application/json'
-  }
+    'Accept': 'application/json',
+    'Accept-Encoding': 'gzip, deflate'
+  },
+  httpAgent,
+  httpsAgent
 });
 
 // OpenDota API client (free tier, rate limited)
@@ -20,8 +38,11 @@ const openDotaApi = axios.create({
   baseURL: 'https://api.opendota.com/api',
   timeout: TIMEOUTS.OPENDOTA,
   headers: {
-    'Accept': 'application/json'
-  }
+    'Accept': 'application/json',
+    'Accept-Encoding': 'gzip, deflate'
+  },
+  httpAgent,
+  httpsAgent
 });
 
 // Get Steam API key from environment

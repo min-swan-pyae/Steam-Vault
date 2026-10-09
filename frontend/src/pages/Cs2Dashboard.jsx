@@ -101,36 +101,38 @@ export default function Cs2Dashboard() {
 
       {/* Navigation Tabs */}
       <div className="bg-gray-900/60 backdrop-blur border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <nav className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-            <div className="inline-flex rounded-full bg-gray-800/70 border border-gray-700 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+          <nav className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            {/* Tab buttons - stack on mobile, inline on sm+ */}
+            <div className="flex flex-col sm:flex-row sm:inline-flex sm:rounded-full sm:bg-gray-800/70 sm:border sm:border-gray-700 sm:overflow-hidden gap-2 sm:gap-0">
               <button
                 onClick={() => {
                   setShowProfileData(true);
                   setShowCommunityStats(false);
                 }}
-                className={`px-6 py-2 text-sm font-semibold transition-colors ${
+                className={`px-4 sm:px-5 lg:px-6 py-2.5 sm:py-2 text-sm font-semibold transition-colors rounded-full sm:rounded-none ${
                   showProfileData
                     ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-lg shadow-blue-500/30'
-                    : 'text-gray-300 hover:text-white'
+                    : 'bg-gray-800/70 sm:bg-transparent text-gray-300 hover:text-white border border-gray-700 sm:border-0'
                 }`}
               >
-                📊 Player Profile
+                📊 <span className="hidden xs:inline">Player </span>Profile
               </button>
               <button
                 onClick={() => {
                   setShowProfileData(false);
                   setShowCommunityStats(true);
                 }}
-                className={`px-6 py-2 text-sm font-semibold transition-colors ${
+                className={`px-4 sm:px-5 lg:px-6 py-2.5 sm:py-2 text-sm font-semibold transition-colors rounded-full sm:rounded-none ${
                   showCommunityStats
                     ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-lg shadow-blue-500/30'
-                    : 'text-gray-300 hover:text-white'
+                    : 'bg-gray-800/70 sm:bg-transparent text-gray-300 hover:text-white border border-gray-700 sm:border-0'
                 }`}
               >
-                🏆 Community & Leaderboard
+                🏆 <span className="hidden md:inline">Community & </span>Leaderboard
               </button>
             </div>
+            {/* View My Profile button */}
             {showProfileData && user?.steamId && String(targetSteamId) !== String(user.steamId) && (
               <button
                 onClick={() => {
@@ -138,7 +140,7 @@ export default function Cs2Dashboard() {
                   setShowProfileData(true);
                   setShowCommunityStats(false);
                 }}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2 text-sm font-semibold text-slate-900 bg-emerald-400 hover:bg-emerald-300 rounded-full transition"
+                className="inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 sm:py-2 text-sm font-semibold text-slate-900 bg-emerald-400 hover:bg-emerald-300 rounded-full transition w-full sm:w-auto"
               >
                 View My Profile
               </button>

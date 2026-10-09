@@ -24,7 +24,7 @@ export default function ErrorPage() {
               Return Home
             </Link>
             <button
-              onClick={() => window.location.href = 'http://localhost:3000/auth/steam'}
+              onClick={() => window.location.href = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/auth/steam`}
               className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded transition-colors duration-200"
             >
               Try Again

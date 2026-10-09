@@ -31,7 +31,13 @@ class FirebaseService {
       auth: {
         user: process.env.GMAIL_USER,
         pass: process.env.GMAIL_APP_PASSWORD
-      }
+      },
+      // Connection timeout settings
+      connectionTimeout: 30000, // 30 seconds to establish connection
+      greetingTimeout: 20000,   // 20 seconds for greeting
+      socketTimeout: 60000,     // 60 seconds for socket operations
+      // DNS settings
+      dnsTimeout: 15000,        // 15 seconds for DNS lookup
     });
   }
 

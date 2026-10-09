@@ -416,7 +416,7 @@ export default function Dota2Dashboard() {
         {/* Meta Stats */}
         <div className="bg-gray-800 rounded-lg p-6">
           <div className="flex flex-col sm:flex-row items-center justify-between mb-8">
-          <h2 className="text-2xl font-bold">Current Meta in Pro Scence</h2>
+          <h2 className="text-2xl font-bold">Current Meta in Pro Scene</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6 sm:gap-4">
             {isLoading ? (

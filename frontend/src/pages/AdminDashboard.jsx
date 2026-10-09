@@ -309,7 +309,7 @@ export default function AdminDashboard() {
     try {
       const ids = reportIds.split(',').map(s=>s.trim()).filter(Boolean);
       const res = await forumApi.resolveReports({ reportIds: ids, status: 'resolved' });
-      toast.success(`Deleted ${res.processed} report(s) - Suspension auto-checked`);
+      toast.success(`Deleted ${res.processed} report(s)`);
       setReportIds('');
       await refreshActiveView();
       await reloadSummary();

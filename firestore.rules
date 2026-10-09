@@ -18,15 +18,17 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
              exists(/databases/$(database)/documents/users/$(getSteamId())) &&
-             get(/databases/$(database)/documents/users/$(getSteamId())).data.permissions.isAdmin == true;
+             (
+               // Preferred: roles array contains 'admin'
+               (get(/databases/$(database)/documents/users/$(getSteamId())).data.roles != null &&
+                get(/databases/$(database)/documents/users/$(getSteamId())).data.roles.hasAny(['admin'])) ||
+               // Backward compatibility with legacy permissions structure
+               (get(/databases/$(database)/documents/users/$(getSteamId())).data.permissions.isAdmin == true)
+             );
     }
     
-    function isModerator() {
-      return isAuthenticated() && 
-             exists(/databases/$(database)/documents/users/$(getSteamId())) &&
-             (get(/databases/$(database)/documents/users/$(getSteamId())).data.permissions.isModerator == true ||
-              get(/databases/$(database)/documents/users/$(getSteamId())).data.permissions.isAdmin == true);
-    }
+    // Moderator role removed; only admin has elevated privileges now
+    function isModerator() { return false; }
     
     function isVerifiedUser() {
       return isAuthenticated() && 
@@ -48,7 +50,7 @@ service cloud.firestore {
       return timeValue > (request.time - duration.value(1, 'h'));
     }
     
-    // Rate limiting helper (simplified - for basic validation)
+    // Rate limiting helper 
     function canPerformAction(collection, limit) {
       // Basic rate limiting check - returns true for now
       // In production, implement proper rate limiting via Cloud Functions
@@ -82,12 +84,7 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.steamId) || isAdmin();
     }
 
-    // 3. SESSIONS COLLECTION (Internal use only)
-    match /sessions/{sessionId} {
-      allow read, write: if false; // Only server-side access
-    }
-
-    // 4. NOTIFICATIONS COLLECTION
+    // 3. NOTIFICATIONS COLLECTION
     match /notifications/{docId} {
       allow read, update: if isAuthenticated() && 
                              resource.data.steamId == getSteamId();
@@ -95,7 +92,7 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.steamId) || isAdmin();
     }
 
-    // 5. EMAIL CONNECTIONS COLLECTION (Sensitive data)
+    // 4. EMAIL CONNECTIONS COLLECTION (Sensitive data)
     match /emailConnections/{docId} {
       allow read, update: if isAuthenticated() && 
                              resource.data.steamId == getSteamId();
@@ -104,27 +101,20 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.steamId) || isAdmin();
     }
 
-    // 6. MARKET WATCHLISTS COLLECTION
+    // 5. MARKET WATCHLISTS COLLECTION
     match /marketWatchlists/{docId} {
       allow read, create, update, delete: if isAuthenticated() && 
                                              (resource == null || resource.data.steamId == getSteamId()) &&
                                              (request.resource == null || request.resource.data.steamId == getSteamId());
     }
 
-    // 7. PRICE ALERTS COLLECTION
-    match /priceAlerts/{docId} {
-      allow read: if isAuthenticated() && 
-                     resource.data.steamId == getSteamId();
-      allow create, update, delete: if false; // Server-side only
-    }
-
-    // 8. FORUM CATEGORIES COLLECTION
+    // 6. FORUM CATEGORIES COLLECTION
     match /forumCategories/{categoryId} {
       allow read: if isAuthenticated();
       allow create, update, delete: if isAdmin();
     }
 
-    // 9. FORUM POSTS COLLECTION
+    // 7. FORUM POSTS COLLECTION
     match /forumPosts/{postId} {
       allow read: if isAuthenticated() && !isBanned();
       
@@ -134,15 +124,15 @@ service cloud.firestore {
                        request.resource.data.authorSteamId == getSteamId() &&
                        canPerformAction('forum_posts_rate', 10); // 10 posts per hour limit
       
-      allow update: if isAuthenticated() && 
-                       !isBanned() &&
-                       (resource.data.authorSteamId == getSteamId() || isModerator()) &&
-                       (!resource.data.isLocked || isModerator());
+  allow update: if isAuthenticated() && 
+           !isBanned() &&
+           (resource.data.authorSteamId == getSteamId() || isAdmin()) &&
+           (!resource.data.isLocked || isAdmin());
       
-      allow delete: if isOwner(resource.data.authorSteamId) || isModerator();
+  allow delete: if isOwner(resource.data.authorSteamId) || isAdmin();
     }
 
-    // 10. FORUM COMMENTS COLLECTION
+    // 8. FORUM COMMENTS COLLECTION
     match /forumComments/{commentId} {
       allow read: if isAuthenticated() && !isBanned();
       
@@ -152,16 +142,16 @@ service cloud.firestore {
                        request.resource.data.authorSteamId == getSteamId() &&
                        canPerformAction('forum_comments_rate', 50); // 50 comments per hour limit
       
-      allow update: if isAuthenticated() && 
-                       !isBanned() &&
-                       (resource.data.authorSteamId == getSteamId() || isModerator());
+  allow update: if isAuthenticated() && 
+           !isBanned() &&
+           (resource.data.authorSteamId == getSteamId() || isAdmin());
       
-      allow delete: if isOwner(resource.data.authorSteamId) || isModerator();
+  allow delete: if isOwner(resource.data.authorSteamId) || isAdmin();
     }
 
-    // 11. FORUM REPORTS COLLECTION
+    // 9. FORUM REPORTS COLLECTION
     match /forumReports/{reportId} {
-      allow read: if isModerator();
+  allow read: if isAdmin();
       
       allow create: if isAuthenticated() && 
                        !isBanned() &&
@@ -169,18 +159,18 @@ service cloud.firestore {
                        request.resource.data.reporterSteamId == getSteamId() &&
                        canPerformAction('forum_reports_rate', 5); // 5 reports per hour limit
       
-      allow update: if isModerator();
+  allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // 12. USER ACTIVITY COLLECTION (Auto-managed)
+    // 10. USER ACTIVITY COLLECTION (Auto-managed)
     match /userActivity/{activityId} {
       allow read: if isAuthenticated() && 
                      resource.data.steamId == getSteamId();
       allow create, update, delete: if false; // Server-side only
     }
 
-    // 13. MATCHES COLLECTION (CS2 GSI data)
+    // 11. MATCHES COLLECTION (CS2 GSI data)
     match /matches/{steamId} {
       allow read: if isAuthenticated() && 
                      (steamId == getSteamId() || 
@@ -193,7 +183,7 @@ service cloud.firestore {
       allow delete: if isOwner(steamId) || isAdmin();
     }
 
-    // 14. PLAYER STATS COLLECTION
+    // 12. PLAYER STATS COLLECTION
     match /playerStats/{steamId} {
       allow read: if isAuthenticated() && 
                      (steamId == getSteamId() || 
@@ -206,7 +196,7 @@ service cloud.firestore {
       allow delete: if isOwner(steamId) || isAdmin();
     }
 
-    // 15. WEAPON STATS COLLECTION
+    // 13. WEAPON STATS COLLECTION
     match /weaponStats/{statId} {
       allow read: if isAuthenticated() && 
                      (resource.data.steamId == getSteamId() || 
@@ -219,7 +209,7 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.steamId) || isAdmin();
     }
 
-    // 16. MAP STATS COLLECTION
+    // 14. MAP STATS COLLECTION
     match /mapStats/{statId} {
       allow read: if isAuthenticated() && 
                      (resource.data.steamId == getSteamId() || 
@@ -232,26 +222,12 @@ service cloud.firestore {
       allow delete: if isOwner(resource.data.steamId) || isAdmin();
     }
 
-    // 17. GSI CONFIGS COLLECTION
-    match /gsiConfigs/{steamId} {
-      allow read, create, update, delete: if isOwner(steamId);
-    }
-
-    // 18. LEADERBOARDS COLLECTION (Public read, server write)
-    match /leaderboards/{type} {
-      allow read: if isAuthenticated();
-      allow create, update, delete: if false; // Server-side only
-    }
-
-    // 19. MARKET CACHE COLLECTION (Internal)
-    match /marketCache/{key} {
-      allow read, write: if false; // Server-side only
-    }
-
-    // 20. SYSTEM SETTINGS COLLECTION
-    match /systemSettings/{key} {
-      allow read: if isAuthenticated();
-      allow create, update, delete: if isAdmin();
+    // 15. GSI SESSIONS COLLECTION
+    match /gsiSessions/{steamId} {
+      allow read: if isAuthenticated() && (
+        steamId == getSteamId() || isAdmin()
+      );
+      allow create, update, delete: if isOwner(steamId);
     }
 
     // RATE LIMITING DOCUMENTS (Auto-managed)

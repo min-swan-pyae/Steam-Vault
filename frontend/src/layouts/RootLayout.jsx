@@ -15,10 +15,10 @@ export default function RootLayout() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <Link to="/" className="flex-shrink-0">
-                <span className="text-xl font-bold text-blue-500">SteamVault</span>
+                <span className="text-lg lg:text-xl font-bold text-blue-500">SteamVault</span>
               </Link>
-              <div className="hidden md:block">
-                <div className="ml-10 flex items-baseline space-x-4">
+              <div className="hidden lg:block">
+                <div className="ml-6 xl:ml-10 flex items-baseline space-x-2 xl:space-x-4">
                   <NavLink to="/dota2">Dota 2</NavLink>
                   <NavLink to="/cs2">CS2</NavLink>
                   <NavLink to="/marketplace">Marketplace</NavLink>
@@ -30,28 +30,29 @@ export default function RootLayout() {
               </div>
             </div>
             
-            <div className="hidden md:block">
+            <div className="hidden lg:block">
               <div className="flex items-center">
                 {loading ? (
                   <div className="text-gray-300">Loading...</div>
                 ) : user ? (
-                  <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2 xl:space-x-4">
                     <NotificationBell />
                     <img
                       src={user.photos?.[0]?.value}
                       alt={user.displayName}
                       className="w-8 h-8 rounded-full"
                     />
-                    <span className="text-sm font-medium">{user.displayName}</span>
+                    <span className="text-sm font-medium hidden xl:inline">{user.displayName}</span>
                     <Link 
                       to="/settings"
-                      className="px-3 py-2 rounded-md text-sm font-medium bg-gray-600 hover:bg-gray-700 transition-colors"
+                      className="px-2 xl:px-3 py-2 rounded-md text-sm font-medium bg-gray-600 hover:bg-gray-700 transition-colors"
                     >
-                      ⚙️ Settings
+                      <span className="hidden xl:inline">⚙️ Settings</span>
+                      <span className="xl:hidden">⚙️</span>
                     </Link>
                     <button
                       onClick={logout}
-                      className="px-3 py-2 rounded-md text-sm font-medium bg-red-600 hover:bg-red-700 transition-colors"
+                      className="px-2 xl:px-3 py-2 rounded-md text-sm font-medium bg-red-600 hover:bg-red-700 transition-colors"
                     >
                       Logout
                     </button>
@@ -72,7 +73,7 @@ export default function RootLayout() {
             </div>
 
             {/* Mobile menu button */}
-            <div className="md:hidden">
+            <div className="lg:hidden">
               <button
                 onClick={() => setIsMenuOpen(!isMenuOpen)}
                 className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700 focus:outline-none"
@@ -104,7 +105,7 @@ export default function RootLayout() {
           </div>
 
           {/* Mobile menu */}
-          <div className={`${isMenuOpen ? 'block' : 'hidden'} md:hidden pb-3`}>
+          <div className={`${isMenuOpen ? 'block' : 'hidden'} lg:hidden pb-3`}>
             <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
               <MobileNavLink to="/dota2" onClick={() => setIsMenuOpen(false)}>
                 Dota 2

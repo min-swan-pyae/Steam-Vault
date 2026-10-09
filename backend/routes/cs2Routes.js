@@ -56,7 +56,7 @@ router.get('/gsi-test/:steamId', (req, res) => {
   res.json({
     message: 'CS2 GSI endpoint is reachable',
     steamId: steamId,
-    endpoint: `http://localhost:3000/api/cs2/gsi/${steamId}`,
+    endpoint: `${process.env.BASE_URL || 'http://localhost:3000'}/api/cs2/gsi/${steamId}`,
     timestamp: new Date().toISOString(),
     instructions: [
       '1. Make sure CS2 is closed',

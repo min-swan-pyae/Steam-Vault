@@ -3,14 +3,16 @@ import { useDispatch, useSelector } from 'react-redux';
 import { setUser, setLoading, setError, clearUser } from '../features/auth/authSlice';
 import { toast } from 'react-hot-toast';
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+
 // Helper functions
 const loginWithSteam = () => {
-  window.location.href = 'http://localhost:3000/auth/steam';
+  window.location.href = `${API_BASE}/auth/steam`;
 };
 
 const logoutUser = async () => {
   try {
-    window.location.href = 'http://localhost:3000/auth/logout';
+    window.location.href = `${API_BASE}/auth/logout`;
   } catch (error) {
     console.error('Logout error:', error);
     toast.error('Failed to log out. Please try again.');
@@ -28,7 +30,7 @@ export function AuthProvider({ children }) {
     dispatch(setLoading(true));
     try {
       console.log('Checking user authentication status...');
-      const response = await fetch('http://localhost:3000/auth/user', {
+      const response = await fetch(`${API_BASE}/auth/user`, {
         method: 'GET',
         credentials: 'include',
         headers: {

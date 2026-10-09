@@ -1088,6 +1088,7 @@ export const getRecentActivity = asyncHandler(async (req, res) => {
  */
 export const getCS2ProfileData = asyncHandler(async (req, res) => {
   const { steamId } = req.params;
+  const requestingSteamId = req.user?.steamId;
   
   if (!steamId) {
     return res.status(400).json({
@@ -1096,10 +1097,27 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
     });
   }
 
+  // Check if user is viewing their own profile
+  const isOwnProfile = requestingSteamId && String(requestingSteamId) === String(steamId);
   
+  // Different cache keys for own profile vs other profiles (different data returned)
+  const profileCacheKey = isOwnProfile 
+    ? `cs2_profile_full_${steamId}` 
+    : `cs2_profile_basic_${steamId}`;
+  
+  const cachedProfile = cacheService.get(CACHE_TYPES.CS2_DATA, profileCacheKey);
+  if (cachedProfile) {
+    console.log(`[CS2 CONTROLLER] Returning cached ${isOwnProfile ? 'full' : 'basic'} profile for ${steamId}`);
+    return res.json(cachedProfile);
+  }
+
   try {
-    // Get Steam profile information
-    const steamProfile = await getSteamProfile(steamId);
+    // Fetch Steam profile and CS2 stats in parallel for better performance
+    const [steamProfile, steamStats] = await Promise.all([
+      getSteamProfile(steamId),
+      getSteamCS2Stats(steamId)
+    ]);
+    
     if (!steamProfile) {
       return res.status(404).json({
         error: 'STEAM_PROFILE_NOT_FOUND',
@@ -1107,34 +1125,44 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
       });
     }
     
-    // Get CS2 statistics from Steam API
-    const steamStats = await getSteamCS2Stats(steamId);
+    // For own profile: fetch all Firestore GSI data
+    // For other profiles: skip Firestore queries to save resources
+    let matches = [];
+    let mapStats = [];
+    let weaponStats = [];
+    let gameInfo = { ownsCS2: false, playtimeForever: 0, playtimeTwoWeeks: 0, lastPlayedTime: null, achievementCount: 0 };
     
-    // Get recent matches and cached data from Firebase
-    const [matches, mapStats, weaponStats] = await Promise.all([
-      firebaseService.getPlayerMatches(steamId, 100),
-      firebaseService.getPlayerMaps(steamId), 
-      firebaseService.getPlayerWeapons(steamId)
-    ]);
+    if (isOwnProfile) {
+      // Full data fetch for own profile
+      console.log(`[CS2 CONTROLLER] Fetching full GSI data for own profile: ${steamId}`);
+      [matches, mapStats, weaponStats, gameInfo] = await Promise.all([
+        firebaseService.getPlayerMatches(steamId, 100),
+        firebaseService.getPlayerMaps(steamId), 
+        firebaseService.getPlayerWeapons(steamId),
+        getCS2GameInfo(steamId)
+      ]);
+    } else {
+      // Basic data only for other profiles - only fetch game info from Steam API
+      console.log(`[CS2 CONTROLLER] Fetching basic profile for other user: ${steamId} (requested by: ${requestingSteamId})`);
+      gameInfo = await getCS2GameInfo(steamId);
+    }
     
     // Combine all data sources
     const combinedStats = combinePlayerStats(steamStats, null, steamProfile, steamId);
     
-    // Get detailed game information
-    const gameInfo = await getCS2GameInfo(steamId);
-    
     // Calculate additional professional-grade statistics
     const enhancedStats = calculateEnhancedStats(combinedStats, matches, mapStats, weaponStats);
     
-    // Get rank information (estimated from match data)
-    const rankInfo = await estimateCS2Rank(steamId, matches);
+    // Get rank information (estimated from match data) - only for own profile
+    const rankInfo = isOwnProfile ? await estimateCS2Rank(steamId, matches) : null;
     
-    // Get performance trends
-    const trends = calculatePerformanceTrends(matches);
+    // Get performance trends - only for own profile
+    const trends = isOwnProfile ? calculatePerformanceTrends(matches) : null;
     
-    // Create comprehensive profile response
+    // Create profile response - include GSI data only for own profile
     const profileData = {
       steamId: steamId,
+      isOwnProfile: isOwnProfile, // Let frontend know what data to expect
       profile: {
         steamId: steamProfile.steamid,
         personaName: steamProfile.personaname,
@@ -1159,23 +1187,23 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
         achievementCount: gameInfo.achievementCount
       },
       
-      // Core statistics
+      // Core statistics (always included - from Steam API)
       statistics: enhancedStats,
       
-      // Rank information
+      // Rank information (own profile only)
       rank: rankInfo,
       
-      // Performance trends
+      // Performance trends (own profile only)
       trends: trends,
       
-  // Recent matches (already filtered & sorted)
-  recentMatches: matches.slice(0, 10),
+      // Recent matches (own profile only - GSI data from Firestore)
+      recentMatches: isOwnProfile ? matches.slice(0, 10) : [],
       
-      // Map performance
-      mapPerformance: mapStats,
+      // Map performance (own profile only - GSI data from Firestore)
+      mapPerformance: isOwnProfile ? mapStats : [],
       
-      // Weapon performance
-      weaponPerformance: weaponStats,
+      // Weapon performance (own profile only - GSI data from Firestore)
+      weaponPerformance: isOwnProfile ? weaponStats : [],
       
       // Metadata
       dataQuality: {
@@ -1184,38 +1212,49 @@ export const getCS2ProfileData = asyncHandler(async (req, res) => {
         mapDataCount: mapStats.length,
         weaponDataCount: weaponStats.length,
         lastUpdated: new Date().toISOString(),
-        dataCompleteness: calculateDataCompleteness(steamStats, matches, mapStats, weaponStats)
+        dataCompleteness: isOwnProfile 
+          ? calculateDataCompleteness(steamStats, matches, mapStats, weaponStats)
+          : calculateDataCompleteness(steamStats, [], [], []) // Basic completeness for other profiles
       }
     };
     
     
     // Persist a compact summary to Firestore for leaderboard/search usage
-    try {
-      const gsiTotalMatches = Array.isArray(mapStats) ? mapStats.reduce((s, m) => s + (Number(m.totalMatches||0)), 0) : 0;
-      const summary = {
-        steamId,
-        personaName: steamProfile.personaname || profileData.profile.personaName,
-        avatarUrl: steamProfile.avatarfull || profileData.profile.avatarUrl,
-        // Prefer Steam-based overview numbers (already in combinedStats)
-        totalKills: Number(combinedStats.totalKills || 0),
-        totalDeaths: Number(combinedStats.totalDeaths || 0),
-        totalWins: Number(combinedStats.totalWins || 0),
-        totalMatches: Number(steamStats?.totalMatches ?? combinedStats.totalMatches ?? 0),
-        kdRatio: Number(combinedStats.kdRatio || 0),
-        winRate: Number(combinedStats.winRate || 0),
-        headshotKills: Number(combinedStats.headshotKills || 0),
-        headshotPercentage: Number(combinedStats.headshotPercentage || 0),
-        gsiTotalMatches: Number(gsiTotalMatches || 0),
-        dataSources: { steam: !!steamStats, gsi: (Array.isArray(matches) && matches.length>0) || (Array.isArray(mapStats) && mapStats.length>0) }
-      };
-      // Guard against NaN
-      Object.keys(summary).forEach(k => {
-        if (typeof summary[k] === 'number' && (!isFinite(summary[k]) || isNaN(summary[k]))) summary[k] = 0;
-      });
-      await firebaseService.savePlayerStats(steamId, summary);
-    } catch (persistErr) {
-      console.warn('[CS2 CONTROLLER] Could not persist profile summary for leaderboard:', persistErr?.message || persistErr);
+    // Only persist when viewing own profile (user's own data should be saved)
+    if (isOwnProfile) {
+      try {
+        const gsiTotalMatches = Array.isArray(mapStats) ? mapStats.reduce((s, m) => s + (Number(m.totalMatches||0)), 0) : 0;
+        const summary = {
+          steamId,
+          personaName: steamProfile.personaname || profileData.profile.personaName,
+          avatarUrl: steamProfile.avatarfull || profileData.profile.avatarUrl,
+          // Prefer Steam-based overview numbers (already in combinedStats)
+          totalKills: Number(combinedStats.totalKills || 0),
+          totalDeaths: Number(combinedStats.totalDeaths || 0),
+          totalWins: Number(combinedStats.totalWins || 0),
+          totalMatches: Number(steamStats?.totalMatches ?? combinedStats.totalMatches ?? 0),
+          kdRatio: Number(combinedStats.kdRatio || 0),
+          winRate: Number(combinedStats.winRate || 0),
+          headshotKills: Number(combinedStats.headshotKills || 0),
+          headshotPercentage: Number(combinedStats.headshotPercentage || 0),
+          gsiTotalMatches: Number(gsiTotalMatches || 0),
+          dataSources: { steam: !!steamStats, gsi: (Array.isArray(matches) && matches.length>0) || (Array.isArray(mapStats) && mapStats.length>0) }
+        };
+        // Guard against NaN
+        Object.keys(summary).forEach(k => {
+          if (typeof summary[k] === 'number' && (!isFinite(summary[k]) || isNaN(summary[k]))) summary[k] = 0;
+        });
+        await firebaseService.savePlayerStats(steamId, summary);
+      } catch (persistErr) {
+        console.warn('[CS2 CONTROLLER] Could not persist profile summary for leaderboard:', persistErr?.message || persistErr);
+      }
     }
+
+    // Cache the profile data for faster subsequent loads
+    // Own profile: 2 minute cache (contains GSI data that may update)
+    // Other profile: 10 minute cache (only Steam data, changes less often)
+    const cacheTTL = isOwnProfile ? 2 * 60 * 1000 : 10 * 60 * 1000;
+    cacheService.set(CACHE_TYPES.CS2_DATA, profileCacheKey, profileData, cacheTTL);
 
     res.json(profileData);
   } catch (error) {

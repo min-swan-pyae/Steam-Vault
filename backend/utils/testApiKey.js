@@ -10,14 +10,12 @@ dotenv.config();
 if (!process.env.STEAM_API_KEY) {
   try {
     const envPath = path.resolve(process.cwd(), '.env');
-    console.log('Loading .env from:', envPath);
     const envContent = fs.readFileSync(envPath, 'utf8');
     
     // Find the STEAM_API_KEY value
     const match = envContent.match(/STEAM_API_KEY=(.*)/);
     if (match && match[1]) {
       process.env.STEAM_API_KEY = match[1].trim();
-      console.log('Found STEAM_API_KEY in .env file');
     }
   } catch (err) {
     console.error('Failed to read .env file:', err.message);

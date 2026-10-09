@@ -163,6 +163,13 @@ export default function ForumPage() {
   const [pageSize, setPageSize] = useState(20);
   const [createOpen, setCreateOpen] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  const initialLoadRef = useRef(false);
+  
+  // Debug: Log component mount/unmount
+  useEffect(() => {
+    console.log(`[ForumPage DEBUG] Component MOUNTED`);
+    return () => console.log(`[ForumPage DEBUG] Component UNMOUNTED`);
+  }, []);
   // Personal mode sorting state
   const [personalSortBy, setPersonalSortBy] = useState('lastActivity'); // lastActivity | createdAt | title
   const [personalSortOrder, setPersonalSortOrder] = useState('desc'); // desc | asc (title toggles)
@@ -198,6 +205,8 @@ export default function ForumPage() {
 
   // Cleanup: remove stale cache entries on mount and clear scheduled reloads on unmount
   useEffect(() => {
+    // Clear leftover cache from previous visits so we always start fresh
+    postsCacheRef.current.clear();
     const now = Date.now();
     const store = postsCacheRef.current;
     const keys = Array.from(store.keys());
@@ -212,6 +221,7 @@ export default function ForumPage() {
       if (realtimeReloadRef.current) {
         clearTimeout(realtimeReloadRef.current);
       }
+      postsCacheRef.current.clear();
     };
   }, []);
 
@@ -253,17 +263,28 @@ export default function ForumPage() {
     const cacheKey = getCacheKey(categoryId, pg, ps, personal);
     const cached = postsCacheRef.current.get(cacheKey);
     const cacheIsFresh = cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS;
+    
+    console.log(`[ForumPage DEBUG] loadPosts called: categoryId=${categoryId}, forceRefresh=${forceRefresh}, cacheIsFresh=${cacheIsFresh}`);
     if (cached) {
+      const postStats = cached.posts?.map(p => `${p.id.slice(-4)}:${p.stats?.comments}c`).join(', ');
+      console.log(`[ForumPage DEBUG] cached data: [${postStats}]`);
+    }
+    
+    // Only use cached data if NOT force refreshing and cache is fresh
+    if (cached && !forceRefresh && cacheIsFresh) {
       setPosts(cached.posts);
       setTotal(cached.total);
       setLoading(false);
+      return;
+    }
+    
+    // Show cached data temporarily while fetching, but only if not forcing refresh
+    if (cached && !forceRefresh) {
+      setPosts(cached.posts);
+      setTotal(cached.total);
     }
 
     const requestId = ++activeRequestRef.current;
-
-    if (cacheIsFresh && !forceRefresh) {
-      return;
-    }
 
     const runFetch = async () => {
       if (personal) {
@@ -299,6 +320,8 @@ export default function ForumPage() {
         if (activeRequestRef.current !== requestId) return;
         const list = res?.posts || res || [];
         const totalFromServer = res?.total ?? list.length;
+        const postStats = list.map(p => `${p.id.slice(-4)}:${p.stats?.comments}c`).join(', ');
+        console.log(`[ForumPage DEBUG] API response: [${postStats}]`);
         setPosts(list);
         setTotal(totalFromServer);
         postsCacheRef.current.set(cacheKey, { posts: list, total: totalFromServer, fetchedAt: Date.now() });
@@ -334,6 +357,10 @@ export default function ForumPage() {
 
   const handleRealtimePost = useCallback((event) => {
     if (!event?.type) return;
+    
+    // Skip like events - handleRealtimeLike handles those with optimistic updates
+    if (event.type === 'post:liked') return;
+    
     const post = event.post;
     const ownerSteamId = post?.authorSteamId || event.postAuthorSteamId;
     const categoryId = post?.categoryId || event.categoryId;
@@ -348,8 +375,69 @@ export default function ForumPage() {
   }, [myPostsMode, user?.steamId, activeCategory, scheduleRealtimeReload]);
 
   const handleRealtimeComment = useCallback((event) => {
+    // Skip like events - handleRealtimeLike handles those
+    if (event.type === 'comment:liked') return;
+    
     const targetPostId = event.comment?.postId || event.postId;
     if (!targetPostId) return;
+    
+    // Immediately update comment count for the affected post
+    if (event.type === 'comment:created') {
+      console.log(`[ForumPage DEBUG] SSE comment:created: postId=${targetPostId}`);
+      setPosts(prev => {
+        const post = prev.find(p => p.id === targetPostId);
+        console.log(`[ForumPage DEBUG] comment:created - found post: ${post?.id?.slice(-4)}, current comments=${post?.stats?.comments}`);
+        return prev.map(p => {
+          if (p.id === targetPostId) {
+            const newCount = (p.stats?.comments || 0) + 1;
+            console.log(`[ForumPage DEBUG] comment:created - updating ${p.id.slice(-4)}: ${p.stats?.comments} -> ${newCount}`);
+            return {
+              ...p,
+              stats: { ...p.stats, comments: newCount }
+            };
+          }
+          return p;
+        });
+      });
+      // Also update cache
+      const cacheKey = getCacheKey(activeCategory, page, pageSize, myPostsMode);
+      const cached = postsCacheRef.current.get(cacheKey);
+      if (cached) {
+        cached.posts = cached.posts.map(p => {
+          if (p.id === targetPostId) {
+            return { ...p, stats: { ...p.stats, comments: (p.stats?.comments || 0) + 1 } };
+          }
+          return p;
+        });
+      }
+      return;
+    }
+    
+    if (event.type === 'comment:deleted') {
+      setPosts(prev => prev.map(p => {
+        if (p.id === targetPostId) {
+          return {
+            ...p,
+            stats: { ...p.stats, comments: Math.max(0, (p.stats?.comments || 0) - 1) }
+          };
+        }
+        return p;
+      }));
+      // Also update cache
+      const cacheKey = getCacheKey(activeCategory, page, pageSize, myPostsMode);
+      const cached = postsCacheRef.current.get(cacheKey);
+      if (cached) {
+        cached.posts = cached.posts.map(p => {
+          if (p.id === targetPostId) {
+            return { ...p, stats: { ...p.stats, comments: Math.max(0, (p.stats?.comments || 0) - 1) } };
+          }
+          return p;
+        });
+      }
+      return;
+    }
+    
+    // For other comment events, fall back to reload
     const targetPost = posts.find(p => p.id === targetPostId);
     if (!targetPost) {
       // Post not in current list, but still invalidate cache in case it's in another tab
@@ -361,7 +449,7 @@ export default function ForumPage() {
       return;
     }
     scheduleRealtimeReload({ categoryId: targetPost.categoryId });
-  }, [posts, myPostsMode, activeCategory, scheduleRealtimeReload]);
+  }, [posts, myPostsMode, activeCategory, scheduleRealtimeReload, getCacheKey, page, pageSize, setPosts]);
 
   const handleRealtimeLike = useCallback((event) => {
     if (!event) return;
@@ -387,11 +475,8 @@ export default function ForumPage() {
         return p;
       }));
     }
-    // For comment likes, just schedule reload since comments aren't visible in list view
-    if (type === 'comment:liked') {
-      scheduleRealtimeReload({ categoryId: activeCategory });
-    }
-  }, [user?.steamId, setPosts, activeCategory, scheduleRealtimeReload]);
+    // Comment likes don't affect ForumPage view - no action needed
+  }, [user?.steamId, setPosts]);
 
   useForumRealtime({ 
     onPostChange: handleRealtimePost, 
@@ -401,12 +486,26 @@ export default function ForumPage() {
 
   // React to category/page changes
   useEffect(() => {
-    if (myPostsMode) {
-      loadPosts(undefined, page, pageSize, true);
-    } else if (activeCategory) {
-      loadPosts(activeCategory, page, pageSize, false);
+    // Check if we need to force refresh (e.g., after deleting a post)
+    const needsRefresh = searchParams.get('refresh') === '1';
+    const isInitialLoad = !initialLoadRef.current;
+    if (isInitialLoad) {
+      initialLoadRef.current = true;
     }
-  }, [activeCategory, page, pageSize, loadPosts, myPostsMode]);
+    const shouldForceRefresh = needsRefresh || isInitialLoad;
+    if (needsRefresh) {
+      // Remove the refresh param from URL without triggering a re-render loop
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('refresh');
+      setSearchParams(newParams, { replace: true });
+    }
+    
+    if (myPostsMode) {
+      loadPosts(undefined, page, pageSize, true, { forceRefresh: shouldForceRefresh });
+    } else if (activeCategory) {
+      loadPosts(activeCategory, page, pageSize, false, { forceRefresh: shouldForceRefresh });
+    }
+  }, [activeCategory, page, pageSize, loadPosts, myPostsMode, searchParams, setSearchParams]);
 
   // Refetch when personal sorting changes while in myPostsMode
   useEffect(() => {

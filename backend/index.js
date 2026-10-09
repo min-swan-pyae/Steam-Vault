@@ -1,8 +1,15 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
+import dns from 'dns';
 import fs from 'fs';
 import path from 'path';
+
+// Configure DNS to use Google DNS servers (fixes router DNS timeout issues)
+dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+
 import dotaRoutes from './routes/dotaRoutes.js';
 import cs2Routes from './routes/cs2Routes.js';
 import marketRoutes from './routes/marketRoutes.js';
@@ -15,6 +22,7 @@ import firebaseService from './services/firebaseService.js';
 // Market trends & weekly digest removed
 import sseRoutes from './routes/sseRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
+import { setCacheHeaders } from './middleware/cacheHeaders.js';
 import { loadHeroMap, loadItemMap } from './utils/dotaUtils.js';
 import { preWarmHeroImageCache } from './controllers/imageController.js';
 import session from 'express-session';
@@ -60,6 +68,24 @@ const startServer = async () => {
   });
 
 //middleware
+  // Security headers (helmet) - relaxed for development
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disable CSP for dev (frontend on different port)
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' } // Allow cross-origin images
+  }));
+
+  // Gzip compression for all responses (reduces payload size by ~70%)
+  app.use(compression({
+    level: 6, // Industry standard default - good balance of speed and compression
+    threshold: 1024, // Only compress responses > 1KB
+    filter: (req, res) => {
+      // Don't compress SSE streams
+      if (req.path.includes('/stream')) return false;
+      return compression.filter(req, res);
+    }
+  }));
+
   const allowedOrigins = [
     /^http:\/\/localhost:517[0-9]$/,
     /^http:\/\/127\.0\.0\.1:517[0-9]$/
@@ -90,6 +116,9 @@ const startServer = async () => {
   }));
 app.use(express.json({ limit: '300mb' }));
 app.use(express.urlencoded({ extended: true, limit: '300mb' }));
+
+  // HTTP cache headers for API responses
+  app.use('/api', setCacheHeaders);
 
   app.use(session({
     secret: process.env.SESSION_SECRET || 'your-secret-key',

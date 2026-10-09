@@ -132,10 +132,15 @@ class PriceAlertScheduler {
         return { updated: false, alerted: false, failed: true };
       }
 
-      // Update the currentPrice in Firestore
+      // Update the currentPrice in Firestore AND add to priceHistory
       await item.ref.update({
         currentPrice,
-        lastPriceCheck: FieldValue.serverTimestamp()
+        lastPriceCheck: FieldValue.serverTimestamp(),
+        // Append to priceHistory array for sparkline display
+        priceHistory: FieldValue.arrayUnion({
+          price: currentPrice,
+          timestamp: new Date()
+        })
       });
 
       // Check if price drop is significant enough to alert

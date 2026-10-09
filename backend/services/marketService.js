@@ -1,25 +1,47 @@
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
 import { cacheService, CACHE_TYPES } from './cacheService.js';
 import { TIMEOUTS } from '../utils/retryUtils.js';
+
+// HTTP/HTTPS agents with connection pooling (keep-alive)
+const httpAgent = new http.Agent({ 
+  keepAlive: true, 
+  maxSockets: 5,  // Lower limit for Steam Market to avoid rate limiting
+  keepAliveMsecs: 30000 
+});
+const httpsAgent = new https.Agent({ 
+  keepAlive: true, 
+  maxSockets: 5,
+  keepAliveMsecs: 30000 
+});
 
 const steamApi = axios.create({
   baseURL: 'https://api.steampowered.com',
   timeout: TIMEOUTS.STEAM_API,
-  headers: { 'Accept': 'application/json' }
+  headers: { 
+    'Accept': 'application/json',
+    'Accept-Encoding': 'gzip, deflate'
+  },
+  httpAgent,
+  httpsAgent
 });
 
 // Steam Community Market client
-const http = axios.create({
+const httpClient = axios.create({
   baseURL: 'https://steamcommunity.com/market',
   timeout: TIMEOUTS.STEAM_MARKET,
   headers: {
     'Accept': 'application/json, text/javascript, */*; q=0.01',
     'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Referer': 'https://steamcommunity.com/market/',
     'Origin': 'https://steamcommunity.com',
     'X-Requested-With': 'XMLHttpRequest'
-  }
+  },
+  httpAgent,
+  httpsAgent
 });
 
 const IMAGE_BASE = 'https://steamcommunity-a.akamaihd.net/economy/image/';
@@ -180,12 +202,13 @@ class RequestQueue {
     this.queue = [];
     this.processing = false;
     this.lastRequestTime = 0;
-    this.minDelay = 2000; // ~2s between calls to be more conservative with Steam
-    this.maxDelay = 15000;
+    this.minDelay = 3500; // ~3.5s between calls to avoid 429 rate limiting from Steam
+    this.maxDelay = 30000; // Longer max delay for backoff
     this.currentDelay = this.minDelay;
     this.failureCount = 0;
     this.concurrentLimit = 1;
     this.activeRequests = 0;
+    this.lastRateLimitTime = 0; // Track when we last hit a 429
   }
   async enqueue(requestFn) {
     return new Promise((resolve, reject) => {
@@ -216,10 +239,25 @@ class RequestQueue {
         console.error(`[REQUEST QUEUE] Request failed:`, err.message);
         const status = err?.response?.status;
         const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '');
-        if ((status === 429 || isTimeout) && retries < 2) {
+        const isRateLimit = status === 429;
+        const isConnectionError = err.code === 'ECONNRESET' || /socket hang up/i.test(err.message || '');
+        
+        if ((isRateLimit || isTimeout || isConnectionError) && retries < 3) {
           this.failureCount++;
-          this.currentDelay = Math.min(this.maxDelay, this.minDelay * Math.pow(2, this.failureCount));
-          await new Promise(r => setTimeout(r, this.currentDelay));
+          
+          // Longer cooldown for rate limits
+          if (isRateLimit) {
+            this.lastRateLimitTime = Date.now();
+            // Wait 10-30 seconds on 429
+            const rateLimitWait = 10000 + Math.random() * 20000;
+            console.warn(`[REQUEST QUEUE] Rate limited (429). Waiting ${(rateLimitWait/1000).toFixed(1)}s before retry...`);
+            await new Promise(r => setTimeout(r, rateLimitWait));
+          } else {
+            // Exponential backoff for other errors
+            this.currentDelay = Math.min(this.maxDelay, this.minDelay * Math.pow(2, this.failureCount));
+            await new Promise(r => setTimeout(r, this.currentDelay));
+          }
+          
           this.queue.unshift({ requestFn, resolve, reject, retries: retries + 1 });
           continue;
         }
@@ -232,7 +270,7 @@ class RequestQueue {
 }
 const requestQueue = new RequestQueue();
 function scheduledGet(path, config) {
-  return requestQueue.enqueue(() => http.get(path, config));
+  return requestQueue.enqueue(() => httpClient.get(path, config));
 }
 
 // Search with intelligent bulk fetching (no pagination on backend)
@@ -436,6 +474,8 @@ async function getPriceOverview({ appid, hashName, currency = 1 }) {
 
 async function getTrending({ appid = 730, count = 15 }) {
   const key = `trending_${appid}_${count}`;
+  // Cache trending items for 30 minutes since they don't change frequently
+  // This reduces Steam API calls significantly
   return cacheService.getOrSetDeduped(CACHE_TYPES.MARKET_DATA, key, async () => {
     const { results, total } = await searchItems({
       appid,
@@ -452,7 +492,7 @@ async function getTrending({ appid = 730, count = 15 }) {
           parsePriceTextToNumber(a.salePriceText || a.sellPriceText)
       );
     return { results: sorted.slice(0, count), total };
-  }, 600);
+  }, 1800); // 30 minutes cache (was 600 = 10 minutes)
 }
 
 async function getPriceHistory({ appid, hashName, currency = 1 }) {

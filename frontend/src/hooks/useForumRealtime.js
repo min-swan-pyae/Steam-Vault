@@ -75,20 +75,25 @@ export default function useForumRealtime({ onPostChange, onCommentChange, onRepo
           try {
             const payload = JSON.parse(event.data);
             
-            // Clear cache for specific post when comments change
-            if (payload.type?.startsWith('comment:')) {
+            // Clear cache for specific post when comments change (NOT for likes - they use optimistic updates)
+            if (payload.type?.startsWith('comment:') && payload.type !== 'comment:liked') {
               const postId = payload.comment?.postId || payload.postId;
               if (postId) {
+                // Clear specific post detail and comments cache
                 api.clearCacheByPattern(`/api/forum/posts/${postId}`, 'FORUM_DATA');
               }
+              // Also clear the forum posts list cache since comment counts change
+              api.clearCacheByPattern('/api/forum/posts', 'FORUM_DATA');
             }
             
-            // Clear cache when posts are updated/deleted
-            if (payload.type?.startsWith('post:')) {
+            // Clear cache when posts are updated/deleted (NOT for likes)
+            if (payload.type?.startsWith('post:') && payload.type !== 'post:liked') {
               const postId = payload.post?.id || payload.postId;
               if (postId) {
                 api.clearCacheByPattern(`/api/forum/posts/${postId}`, 'FORUM_DATA');
               }
+              // Also clear posts list cache
+              api.clearCacheByPattern('/api/forum/posts', 'FORUM_DATA');
             }
             
             if (payload.type?.startsWith('post:') && typeof postHandlerRef.current === 'function') {
